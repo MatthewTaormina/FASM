@@ -36,7 +36,19 @@ Allocates a memory slot at the specified `index`.
 - **index**: The destination slot (0-255 for local frames, unlimited for global).
 - **type**: A FASM primitive or collection type.
 - **value**: Initial value. If `NULL`, memory is zeroed.
-- **Behavior**: If called within a `FUNC`, it creates a local reservation. Re-reserving an occupied index without a `RELEASE` triggers a `DoubleReserveFault`.
+- **Behavior**: If called within a `FUNC`, it creates a local reservation. If called in the **global register** (outside any `FUNC`), it persists for the lifetime of the program.
+- **Constraint**: Re-reserving an occupied index without a `RELEASE` triggers a `DoubleReserveFault`.
+
+## Global Register
+
+The global register is a flat memory space **outside all function frames**, populated by `RESERVE` statements declared at the top level (outside any `FUNC` block). Global slots:
+- Are allocated once at program load before `FUNC Main` executes.
+- Persist for the full lifetime of the VM process.
+- Are accessible from **any** function by their global index.
+- Use an **unlimited** index space (not capped at 255 like local frames).
+- Must be manually `RELEASE`d if cleanup is required; they are never implicitly freed.
+
+Global indices and local frame indices are **separate namespaces**. A global slot at index `5` does not conflict with a local slot at index `5` inside a function.
 
 ### RELEASE index
 Frees the memory associated with the `index`.
@@ -79,35 +91,62 @@ Calculates the remainder of `src1 / src2` and stores it in the target index.
 
 ## Functions
 
+All functions and syscalls use a **unified calling convention**: arguments are always passed as a single `STRUCT` argument register. This makes calls self-describing and argument order irrelevant — all values are accessed by key.
+
 ### FUNC name
 Starts a function definition.
-- name: The unique identifier for the function.
+- **name**: The unique identifier for the function.
 
 ### ENDF
-Marks the end of a function block. All local reservations are released.
+Marks the end of a function block. Implicitly performs a void `RET` if no explicit `RET` is encountered.
 
-### PARAM index, type, name
-Defines an input parameter for the function scope.
-- **index**: The numeric slot in the parameter frame (0-based).
-- **type**: The FASM type of the parameter.
-- **name**: A symbolic alias. The compiler resolves this name to the numeric `index` at compile time — they are interchangeable in all instructions.
+### PARAM key, type, name, REQUIRED | OPTIONAL
+Declares an expected field on the incoming argument `STRUCT`.
+- **key**: A `UINT32` key matching a field in the passed `STRUCT`.
+- **type**: The expected FASM type of that field.
+- **name**: A symbolic alias, resolved at compile time. Can be used in place of `key` in all instructions.
+- **REQUIRED**: The static validator enforces that any `CALL` to this function provides this key in its argument struct.
+- **OPTIONAL**: The field may be absent. Access via `HAS_FIELD` before `GET_FIELD` or a `TRY`/`CATCH` block.
+- **Behavior**: `PARAM` declarations do not allocate memory — they describe and validate the incoming struct's shape.
+- **Accessing values**: Use `GET_FIELD $args, key, target` where `$args` is the reserved symbol for the incoming argument struct.
 
 ### LOCAL index, type, name
 Allocates local storage within the function's execution frame.
-- **index**: The numeric slot in the local frame (0-based, separate namespace from `PARAM`).
+- **index**: The numeric slot in the local frame (0-based).
 - **type**: The FASM type of the local variable.
 - **name**: A symbolic alias resolved to the numeric `index` at compile time.
 
-### CALL name, [args...]
-Invokes a defined function.
+### CALL name, struct
+Invokes a defined function, passing a `STRUCT` as the argument register.
 - **name**: The identifier of the function to call.
-- **args**: Ordered list of symbolic names or indices passed as arguments to the callee's `PARAM` frame.
+- **struct**: A `STRUCT` slot whose keys satisfy the callee's `REQUIRED` `PARAM` declarations.
+- **Validation**: The static validator checks that all `REQUIRED` params are present as keys in the provided struct.
 - **Return Value**: After `CALL` returns, the result is available via the special symbol `$ret`.
 
 ### RET [value]
 Returns from the current function to the caller.
 - **value**: Optional. The value or symbolic name to return. Omitting `value` is a void return.
-- **Behavior**: All `LOCAL` and `PARAM` slots are released. Execution resumes at the instruction after the originating `CALL`.
+- **Behavior**: All `LOCAL` memory is released. Execution resumes at the instruction after the originating `CALL`.
+
+## Syscalls
+
+Syscalls are the interface between FASM programs and the VM host environment (I/O, OS services, etc.).
+
+### SYSCALL id, struct
+Invokes a host-defined system call.
+- **id**: An `INT32` literal or slot identifying the syscall. Negative IDs are reserved for the VM host.
+- **struct**: A `STRUCT` slot containing the input arguments for the syscall.
+- **Return Value**: Available via `$ret` after the call, if the syscall produces one.
+- **Behavior**: The host may also write response fields back into the passed `struct`.
+
+### Standard Syscall IDs
+
+| ID | Name | Description |
+| :--- | :--- | :--- |
+| `0` | `PRINT` | Writes a value to standard output. Struct key `0` = value to print. |
+| `1` | `PRINT_VEC` | Writes a `VEC` of `UINT8`/`UINT32` as a character sequence. Struct key `0` = vec. |
+| `2` | `READ` | Reads a line from standard input. Returns result via `$ret` as a `VEC` of `UINT8`. |
+| `3` | `EXIT` | Halts the VM. Struct key `0` = exit code (`INT32`). |
 
 ## Control Flow
 
@@ -174,6 +213,8 @@ Shifts `src` right by `shift` bits. For signed integers, this is an arithmetic s
 
 ## Types
 
+> **No String Type**: FASM has no native string type. Text must be represented as a `VEC` of integer values (e.g., `UINT8` for ASCII, `UINT32` for Unicode code points). The encoding convention is left to the programmer.
+
 ### Collections
 
 ### VEC
@@ -182,9 +223,11 @@ A growable, contiguous array of elements.
 - **Internal**: Implemented as a capacity-doubling buffer.
 
 ### STRUCT
-A collection of heterogeneous types.
-- **Features**: Fields are accessed by constant offsets defined at compile-time.
-- **Internal**: Memory-aligned to the largest member.
+A dynamic map of `UINT32` keys to typed values.
+- **Features**: Fields are created and accessed by integer key at runtime. No fixed layout or schema required.
+- **Internal**: Implemented as a hash map keyed on `UINT32`. Field types are determined by the value assigned.
+- **Nesting**: Field values can be any FASM type, including `REF_MUT` or `REF_IMM` pointing to other collections, enabling arbitrarily deep nesting.
+- **Convention**: Use `DEFINE` constants to give keys symbolic names (e.g., `DEFINE FIELD_X, 0`).
 
 ### STACK
 A Last-In-First-Out (LIFO) data structure.
@@ -226,12 +269,25 @@ Reads the element at position `index` from a `VEC` or `HEAP_MIN`/`HEAP_MAX` and 
 Writes `value` into the element at position `index` of a `VEC`.
 - **Constraint**: Triggers an `IndexOutOfBoundsFault` if `index >= len(vec)`. Does **not** auto-resize.
 
-### GET_FIELD struct, offset, target
-Reads the field at compile-time constant `offset` from a `STRUCT` and copies it into `target`.
-- **offset**: An integer literal or `DEFINE` constant representing the field's position.
+### GET_FIELD struct, key, target
+Reads the value at `key` from a `STRUCT` and copies it into `target`.
+- **key**: A `UINT32` literal, symbolic name, or `DEFINE` constant.
+- **Constraint**: Triggers a `FieldNotFoundFault` if the key does not exist.
 
-### SET_FIELD struct, offset, value
-Writes `value` into the field at `offset` within a `STRUCT`.
+### SET_FIELD struct, key, value
+Writes `value` into the slot at `key` in a `STRUCT`. If the key does not exist, it is created.
+- **key**: A `UINT32` literal, symbolic name, or `DEFINE` constant.
+- **Behavior**: The field's runtime type is inferred from the assigned `value`.
+
+### HAS_FIELD struct, key, target
+Checks whether a `key` exists in a `STRUCT`.
+- **key**: A `UINT32` literal, symbolic name, or `DEFINE` constant.
+- **target**: Must be a `BOOL` slot. Stores `TRUE` if the key exists, `FALSE` otherwise.
+
+### DEL_FIELD struct, key
+Removes the entry at `key` from a `STRUCT`.
+- **key**: A `UINT32` literal, symbolic name, or `DEFINE` constant.
+- **Constraint**: Silent no-op if the key does not exist.
 
 ### LEN collection, target
 Stores the current element count of a `VEC`, `STACK`, `QUEUE`, or `HEAP` into `target` (type `UINT32`).
@@ -297,29 +353,115 @@ Converts the value in `src` to `type` and stores the result in `target`.
 - **Float ↔ Int**: Truncates the decimal on float-to-int conversion.
 - **Constraint**: `BOOL` may only be cast to/from integer types.
 
+## Static Validation
+
+Before any instruction is executed, the VM performs a **full pre-run validation pass** over the entire program. Execution does not begin if any error is found. This guarantees that no invalid instruction can occur at runtime.
+
+### Checks Performed
+
+| Check | Error Raised |
+| :--- | :--- |
+| Referencing an undeclared slot or label | `UndeclaredReferenceError` |
+| Type mismatch between instruction and slot type | `TypeMismatchError` |
+| Using a `REF_IMM` slot as a write target | `ImmutableWriteError` |
+| `CALL` argument count does not match target `PARAM` count | `ArgCountMismatchError` |
+| `CALL` argument types do not match target `PARAM` types | `ArgTypeMismatchError` |
+| `FUNC` with no `RET` or `ENDF` | `MissingReturnError` |
+| `ENDF` or `RET` reached outside a `FUNC` | `ScopeError` |
+| Duplicate `FUNC` name | `DuplicateFunctionError` |
+| Duplicate `LABEL` name within the same `FUNC` | `DuplicateLabelError` |
+| `JMP`/`JZ`/`JNZ` targeting a label in a different `FUNC` | `CrossFunctionJumpError` |
+| `DIV` or `MOD` with a literal `0` as the divisor | `StaticDivisionByZeroError` |
+| `CAST` between incompatible types (e.g., `BOOL` → `FLOAT32`) | `InvalidCastError` |
+| Index out of declared local frame bounds (0-255) | `FrameIndexOverflowError` |
+
+### Runtime-Only Faults
+Some conditions cannot be caught statically and are raised at runtime. These can be caught by a `TRY/CATCH` block.
+
+| Fault | Code | Description |
+| :--- | :--- | :--- |
+| `NullDerefFault` | `0x01` | Dereferencing a `NULL` reference with `&`. |
+| `IndexOutOfBoundsFault` | `0x02` | `GET_IDX`/`SET_IDX` on a `VEC` beyond its current length. |
+| `FieldNotFoundFault` | `0x03` | `GET_FIELD` on a `STRUCT` key that was never set. |
+| `DivisionByZeroFault` | `0x04` | `DIV` or `MOD` where the divisor evaluates to zero at runtime. |
+| `StackOverflowFault` | `0x05` | Recursive `CALL` depth exceeded the VM stack limit. |
+
+## Error Handling
+
+FASM provides structured error handling through `TRY`/`CATCH`/`ENDTRY` blocks. When a runtime fault occurs inside a `TRY` block, the VM:
+1. **Rolls back** all memory changes made to `LOCAL`, `PARAM`, and global slots during the `TRY` block to their state at `TRY` entry.
+2. **Transfers control** to the `CATCH` block.
+3. **Exposes** two read-only symbols inside the `CATCH` block:
+   - `$fault_index` — the zero-based instruction index within the `TRY` block where the fault occurred (`UINT32`).
+   - `$fault_code` — the numeric fault code (`UINT32`, see table above).
+
+### TRY
+Begins a fault-guarded block. On entry, the VM snapshots the current state of all memory reachable from the active frame and global register.
+
+### CATCH
+Begins the recovery block. Executes only if a runtime fault occurred in the preceding `TRY` block.
+- `$fault_index` and `$fault_code` are available as read-only `UINT32` values within this block.
+- The `CATCH` block runs with the **rolled-back** memory state — as if the `TRY` block never executed.
+
+### ENDTRY
+Closes the `TRY`/`CATCH` structure. If no fault occurred, the `CATCH` block is skipped and execution continues here.
+
+**Example**:
+```fasm
+FUNC SafeGet
+    PARAM 0, VEC,   items
+    PARAM 1, UINT32, idx
+    LOCAL 0, INT32,  result
+    LOCAL 1, UINT32, err
+
+    TRY
+        GET_IDX items, idx, result
+        RET result
+    CATCH
+        // items[idx] was out of bounds
+        MOV $fault_code, err  // err == 0x02 (IndexOutOfBoundsFault)
+        RET -1
+    ENDTRY
+ENDF
+```
+
+**Constraints**:
+- `TRY`/`CATCH`/`ENDTRY` are valid only inside a `FUNC` block.
+- `TRY` blocks may **not** be nested within each other in the same function.
+- `RET` inside a `TRY` or `CATCH` block is valid and exits the function normally.
+- Memory rollback covers `LOCAL`, `PARAM`, and **global** slots written during the `TRY` block. Rollback of collection mutations (e.g., `PUSH`, `SET_IDX`) is included.
+
 ## Scoping
 
 FASM utilizes a **Function-First** architecture. This means:
-1. **Entry Point**: The virtual machine begins execution at a function designated as `FUNC Main`.
-2. **Frames**: Each function call creates a new execution frame. Indices specified in `PARAM` and `LOCAL` are relative to the current frame pointer, ensuring recursion and isolation.
-3. **Implicit Release**: All `LOCAL` memory is automatically released when `ENDF` or `RET` is encountered.
+1. **Entry Point**: The virtual machine begins execution at `FUNC Main`. `RET` from `Main` (or reaching its `ENDF`) halts the VM.
+2. **Frames**: Each `CALL` creates a new execution frame. `PARAM` and `LOCAL` indices are relative to the current frame pointer, ensuring isolation and safe recursion.
+3. **Implicit Release**: All `LOCAL` and `PARAM` memory is automatically released when `ENDF` or `RET` is encountered.
+4. **Globals Persist**: Global register slots are never implicitly released and outlive all function calls.
 
 ## Example: Recursive Fibonacci
 
-Demonstrates `PARAM`, `LOCAL`, `CMP`, `JNZ`, `CALL`, `$ret`, and `RET`.
+Demonstrates the struct-based calling convention, `PARAM`, `LOCAL`, `LTE`, `JNZ`, `CALL`, `$args`, `$ret`, and `SYSCALL`.
 
 ```fasm
+// DEFINE symbolic keys for the argument struct
+DEFINE ARG_N, 0
+
 FUNC Fibonacci
-    // Declare inputs
-    PARAM 0, INT32, n
+    // Declare expected argument struct fields
+    PARAM ARG_N, INT32, n, REQUIRED
 
     // Declare locals
-    LOCAL 0, BOOL,  is_base
-    LOCAL 1, INT32, n_minus_1
-    LOCAL 2, INT32, n_minus_2
-    LOCAL 3, INT32, res1
-    LOCAL 4, INT32, res2
-    LOCAL 5, INT32, result
+    LOCAL 0, BOOL,   is_base
+    LOCAL 1, INT32,  n_minus_1
+    LOCAL 2, INT32,  n_minus_2
+    LOCAL 3, INT32,  res1
+    LOCAL 4, INT32,  res2
+    LOCAL 5, INT32,  result
+    LOCAL 6, STRUCT, call_args
+
+    // Read n from the incoming argument struct
+    GET_FIELD $args, n, n
 
     // Base case: if n <= 1, return n
     LTE n, 1, is_base
@@ -327,12 +469,15 @@ FUNC Fibonacci
 
     // Recursive step: Fibonacci(n-1)
     SUB n, 1, n_minus_1
-    CALL Fibonacci, n_minus_1
+    RESERVE 6, STRUCT, NULL
+    SET_FIELD call_args, ARG_N, n_minus_1
+    CALL Fibonacci, call_args
     MOV $ret, res1
 
     // Recursive step: Fibonacci(n-2)
     SUB n, 2, n_minus_2
-    CALL Fibonacci, n_minus_2
+    SET_FIELD call_args, ARG_N, n_minus_2
+    CALL Fibonacci, call_args
     MOV $ret, res2
 
     // Sum results
@@ -344,9 +489,20 @@ BaseCase:
 ENDF
 
 FUNC Main
-    LOCAL 0, INT32, answer
-    CALL Fibonacci, 10
+    LOCAL 0, INT32,  answer
+    LOCAL 1, STRUCT, args
+    LOCAL 2, STRUCT, print_args
+
+    // Call Fibonacci(10)
+    RESERVE 1, STRUCT, NULL
+    SET_FIELD args, ARG_N, 10
+    CALL Fibonacci, args
     MOV $ret, answer
     // answer == 55
+
+    // Print the result via syscall
+    RESERVE 2, STRUCT, NULL
+    SET_FIELD print_args, 0, answer
+    SYSCALL 0, print_args
 ENDF
-```
+```
