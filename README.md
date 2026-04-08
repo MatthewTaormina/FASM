@@ -76,7 +76,7 @@ FASM (Function-first Assembly) is a typed, frame-based bytecode language with:
 
 - **Typed slots** — every local and global slot has a declared type (`INT32`, `STRUCT`, `VEC`, …)
 - **Struct-based calling convention** — all functions and syscalls pass a `STRUCT` argument
-- **Rich collection types** — `VEC`, `STRUCT`, `STACK`, `QUEUE`, `HEAP_MIN`, `HEAP_MAX`
+- **Rich collection types** — `VEC`, `STRUCT`, `STACK`, `QUEUE`, `HEAP_MIN`, `HEAP_MAX`, `SPARSE`, `BTREE`, `SLICE`, `DEQUE`, `BITSET`, `BITVEC`
 - **Wrapper types** — `OPTION`, `RESULT`, `FUTURE`
 - **References** — `REF_MUT` / `REF_IMM` with `&` dereference syntax
 - **Transactional error handling** — `TRY` / `CATCH` / `ENDTRY` with automatic memory rollback
@@ -168,7 +168,7 @@ ENDF
 
 | Category | Instructions |
 |---|---|
-| Memory | `RESERVE`, `RELEASE` |
+| Memory | `RESERVE`, `RELEASE`, `TMP_BLOCK`, `END_TMP` |
 | Data movement | `MOV`, `STORE`, `ADDR` |
 | Arithmetic | `ADD`, `SUB`, `MUL`, `DIV`, `MOD`, `NEG` |
 | Comparison | `EQ`, `NEQ`, `LT`, `LTE`, `GT`, `GTE` |
@@ -176,8 +176,8 @@ ENDF
 | Control flow | `JMP`, `JZ`, `JNZ`, `CALL`, `TAIL_CALL`, `RET`, `HALT` |
 | Async | `ASYNC CALL`, `ASYNC SYSCALL`, `AWAIT` |
 | Syscall | `SYSCALL`, `ASYNC SYSCALL` |
-| Vec / Stack / Queue | `PUSH`, `POP`, `ENQUEUE`, `DEQUEUE`, `PEEK`, `GET_IDX`, `SET_IDX`, `LEN` |
-| Struct | `GET_FIELD`, `SET_FIELD`, `HAS_FIELD`, `DEL_FIELD` |
+| Vec / Stack / Queue | `PUSH`, `POP`, `ENQUEUE`, `DEQUEUE`, `PEEK`, `GET_IDX`, `SET_IDX`, `LEN`, `VEC_FILTER_GT`, `VEC_FILTER_LT`, `VEC_FILTER_EQ`, `VEC_MERGE_SORTED`, `VEC_SLICE`, `PREPEND`, `BITVEC_PUSH` |
+| Struct / Adv Collections | `GET_FIELD`, `SET_FIELD`, `HAS_FIELD`, `DEL_FIELD`, `SPARSE_GET`, `SPARSE_SET`, `SPARSE_DEL`, `SPARSE_HAS`, `BTREE_GET`, `BTREE_SET`, `BTREE_DEL`, `BTREE_HAS`, `BTREE_MIN`, `BTREE_MAX`, `BITSET_SET`, `BITSET_CLEAR`, `BITSET_TOGGLE`, `BITSET_TEST` |
 | Wrappers | `SOME`, `IS_SOME`, `UNWRAP`, `OK`, `ERR`, `IS_OK`, `UNWRAP_OK`, `UNWRAP_ERR` |
 | Cast | `CAST` |
 | Error handling | `TRY`, `CATCH`, `ENDTRY` |
