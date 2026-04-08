@@ -1,0 +1,56 @@
+// vec_ops_demo.fasm
+// Demonstrates VEC_SORT, VEC_FILTER, VEC_MERGE, VEC_SLICE.
+
+FUNC Main
+    // ── Setup: build an unsorted VEC ─────────────────────────────────────
+    LOCAL 0, VEC, v1      // v
+    LOCAL 1, INT32, tmp1  // tmp
+    LOCAL 2, VEC, v2      // result
+    LOCAL 3, SLICE, slc1  // slc
+
+    PUSH v1, 9
+    PUSH v1, 2
+    PUSH v1, 7
+    PUSH v1, 1
+    PUSH v1, 5
+    PUSH v1, 3
+
+    // ── VEC_SORT ─────────────────────────────────────────────────────────
+    VEC_SORT v1              // [1, 2, 3, 5, 7, 9]
+    LEN v1, tmp1
+    SYSCALL 0, tmp1            // print len → 6
+
+    GET_IDX v1, 0, tmp1
+    SYSCALL 0, tmp1            // print first element → 1
+
+    GET_IDX v1, 5, tmp1
+    SYSCALL 0, tmp1            // print last element  → 9
+
+    // ── VEC_FILTER (keep elements > 4) ───────────────────────────────────
+    VEC_FILTER v1, OP_GT, 4, v2  // result = [5, 7, 9]
+    LEN v2, tmp1
+    SYSCALL 0, tmp1            // print filtered len  → 3
+
+    // ── VEC_MERGE ────────────────────────────────────────────────────────
+    LOCAL 4, VEC, b1        // b (already sorted)
+    PUSH b1, 4
+    PUSH b1, 6
+    PUSH b1, 8
+
+    VEC_MERGE v2, b1, v2       // merge [5,7,9] with [4,6,8] → [4,5,6,7,8,9]
+    LEN v2, tmp1
+    SYSCALL 0, tmp1            // print merged len → 6
+
+    GET_IDX v2, 0, tmp1
+    SYSCALL 0, tmp1            // print first → 4
+
+    // ── VEC_SLICE ────────────────────────────────────────────────────────
+    VEC_SLICE v1, 1, 3, slc1    // slc = v[1..4] = [2, 3, 5]  (from sorted original)
+    LEN slc1, tmp1
+    SYSCALL 0, tmp1            // print slice len → 3
+
+    GET_IDX slc1, 0, tmp1
+    SYSCALL 0, tmp1            // print slice[0]  → 2
+
+    RET NULL
+ENDF

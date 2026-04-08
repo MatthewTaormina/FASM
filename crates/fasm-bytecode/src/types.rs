@@ -21,6 +21,14 @@ pub enum FasmType {
     Queue     = 0x23,
     HeapMin   = 0x24,
     HeapMax   = 0x25,
+    // High-performance collections
+    Sparse    = 0x26,  // FxHashMap<u32, Value> — O(1) integer-keyed sparse array
+    BTree     = 0x27,  // BTreeMap<u32, Value>  — O(log n) ordered integer-keyed map
+    Slice     = 0x28,  // read-only sub-range view of a VEC
+    Deque     = 0x29,  // VecDeque — double-ended queue (prepend + append)
+    Bitset    = 0x2A,  // Vec<u8> bit-addressable boolean array
+    Bitvec    = 0x2B,  // Vec<u8> arbitrary-width bit field storage
+    // Wrappers
     Option    = 0x30,
     Result    = 0x31,
     Future    = 0x32,
@@ -50,6 +58,12 @@ impl TryFrom<u8> for FasmType {
             0x23 => Ok(FasmType::Queue),
             0x24 => Ok(FasmType::HeapMin),
             0x25 => Ok(FasmType::HeapMax),
+            0x26 => Ok(FasmType::Sparse),
+            0x27 => Ok(FasmType::BTree),
+            0x28 => Ok(FasmType::Slice),
+            0x29 => Ok(FasmType::Deque),
+            0x2A => Ok(FasmType::Bitset),
+            0x2B => Ok(FasmType::Bitvec),
             0x30 => Ok(FasmType::Option),
             0x31 => Ok(FasmType::Result),
             0x32 => Ok(FasmType::Future),

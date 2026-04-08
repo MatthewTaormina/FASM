@@ -6,7 +6,11 @@ use fasm_bytecode::{
     types::FasmType,
 };
 use crate::{
-    value::{Value, FasmVec, FasmStruct, FasmStack, FasmQueue, FasmHeapMin, FasmHeapMax, FasmOption, FasmResult},
+    value::{
+        Value, FasmVec, FasmStruct, FasmStack, FasmQueue, FasmHeapMin, FasmHeapMax,
+        FasmOption, FasmResult, FasmSparse, FasmBTree, FasmSlice, FasmDeque,
+        FasmBitset, FasmBitvec, numeric_as_i64, numeric_as_u64,
+    },
     fault::Fault,
     memory::{Frame, GlobalRegister},
 };
@@ -66,20 +70,24 @@ impl Executor {
     }
 
     fn register_builtins(&mut self) {
-        // 0 = PRINT: struct key 0 = value to print
+        // 0 = PRINT: struct key 0 = value to print, or just print the value directly
         self.syscalls.insert(0, Box::new(|args, _globals| {
-            if let Value::Struct(s) = &args {
-                let v = s.get(&0).cloned().unwrap_or(Value::Null);
-                println!("{}", v.display());
-            }
+            let v = if let Value::Struct(s) = &args {
+                s.get(&0).cloned().unwrap_or_else(|| args.clone())
+            } else {
+                args.clone()
+            };
+            println!("{}", v.display());
             Ok(Value::Null)
         }));
-        // 1 = PRINT_VEC: struct key 0 = VEC to print as text
+        // 1 = PRINT_VEC: struct key 0 = VEC to print as text, or just print the value directly
         self.syscalls.insert(1, Box::new(|args, _globals| {
-            if let Value::Struct(s) = &args {
-                let v = s.get(&0).cloned().unwrap_or(Value::Null);
-                print!("{}", v.display());
-            }
+            let v = if let Value::Struct(s) = &args {
+                s.get(&0).cloned().unwrap_or_else(|| args.clone())
+            } else {
+                args.clone()
+            };
+            print!("{}", v.display());
             Ok(Value::Null)
         }));
         // 2 = READ: reads a line from stdin, returns VEC<UINT8>.
@@ -536,6 +544,7 @@ impl Executor {
                 match coll {
                     Value::Vec(v)   => v.0.push(val),
                     Value::Stack(s) => s.0.push(val),
+                    Value::Deque(d) => d.0.push_back(val),
                     _ => return Err(Fault::TypeMismatch),
                 }
                 Ok(Action::Continue)
@@ -556,6 +565,7 @@ impl Executor {
                 let coll = self.write_target_mut(get_op!(0))?;
                 match coll {
                     Value::Queue(q) => q.0.push_back(val),
+                    Value::Deque(d) => d.0.push_back(val),
                     _ => return Err(Fault::TypeMismatch),
                 }
                 Ok(Action::Continue)
@@ -565,6 +575,7 @@ impl Executor {
                     let coll = self.write_target_mut(get_op!(0))?;
                     match coll {
                         Value::Queue(q) => q.0.pop_front().ok_or(Fault::IndexOutOfBounds)?,
+                        Value::Deque(d) => d.0.pop_front().ok_or(Fault::IndexOutOfBounds)?,
                         _ => return Err(Fault::TypeMismatch),
                     }
                 };
@@ -576,6 +587,7 @@ impl Executor {
                 let val = match &coll {
                     Value::Stack(s) => s.0.last().cloned().ok_or(Fault::IndexOutOfBounds)?,
                     Value::Queue(q) => q.0.front().cloned().ok_or(Fault::IndexOutOfBounds)?,
+                    Value::Deque(d) => d.0.front().cloned().ok_or(Fault::IndexOutOfBounds)?,
                     _ => return Err(Fault::TypeMismatch),
                 };
                 write_val!(get_op!(1), val);
@@ -585,9 +597,10 @@ impl Executor {
                 let coll = read_val!(get_op!(0));
                 let idx = as_u32(&read_val!(get_op!(1)))? as usize;
                 let val = match &coll {
-                    Value::Vec(v) => v.0.get(idx).cloned().ok_or(Fault::IndexOutOfBounds)?,
+                    Value::Vec(v)     => v.0.get(idx).cloned().ok_or(Fault::IndexOutOfBounds)?,
                     Value::HeapMin(h) => h.0.get(idx).cloned().ok_or(Fault::IndexOutOfBounds)?,
                     Value::HeapMax(h) => h.0.get(idx).cloned().ok_or(Fault::IndexOutOfBounds)?,
+                    Value::Slice(s)   => s.get(idx).cloned().ok_or(Fault::IndexOutOfBounds)?,
                     _ => return Err(Fault::TypeMismatch),
                 };
                 write_val!(get_op!(2), val);
@@ -648,11 +661,17 @@ impl Executor {
             Opcode::Len => {
                 let coll = read_val!(get_op!(0));
                 let len = match &coll {
-                    Value::Vec(v)    => v.0.len(),
-                    Value::Stack(s)  => s.0.len(),
-                    Value::Queue(q)  => q.0.len(),
-                    Value::HeapMin(h)=> h.0.len(),
-                    Value::HeapMax(h)=> h.0.len(),
+                    Value::Vec(v)     => v.0.len() as u64,
+                    Value::Stack(s)   => s.0.len() as u64,
+                    Value::Queue(q)   => q.0.len() as u64,
+                    Value::HeapMin(h) => h.0.len() as u64,
+                    Value::HeapMax(h) => h.0.len() as u64,
+                    Value::Sparse(s)  => s.len() as u64,
+                    Value::BTree(b)   => b.len() as u64,
+                    Value::Slice(s)   => s.len() as u64,
+                    Value::Deque(d)   => d.0.len() as u64,
+                    Value::Bitset(b)  => b.len as u64,   // bits, not bytes
+                    Value::Bitvec(bv) => bv.bit_len,
                     _ => return Err(Fault::TypeMismatch),
                 };
                 write_val!(get_op!(1), Value::Uint32(len as u32));
@@ -756,6 +775,336 @@ impl Executor {
             }
             Opcode::EndTry => {
                 self.call_stack.last_mut().unwrap().try_guard = None;
+                Ok(Action::Continue)
+            }
+
+            // ── DEQUE extensions ─────────────────────────────────────────────
+            Opcode::Prepend => {
+                let val = read_val!(get_op!(1));
+                let coll = self.write_target_mut(get_op!(0))?;
+                match coll {
+                    Value::Deque(d) => d.0.push_front(val),
+                    _ => return Err(Fault::TypeMismatch),
+                }
+                Ok(Action::Continue)
+            }
+            Opcode::PopBack => {
+                let val = {
+                    let coll = self.write_target_mut(get_op!(0))?;
+                    match coll {
+                        Value::Deque(d) => d.0.pop_back().ok_or(Fault::IndexOutOfBounds)?,
+                        _ => return Err(Fault::TypeMismatch),
+                    }
+                };
+                write_val!(get_op!(1), val);
+                Ok(Action::Continue)
+            }
+            Opcode::PeekBack => {
+                let coll = read_val!(get_op!(0));
+                let val = match &coll {
+                    Value::Deque(d) => d.0.back().cloned().ok_or(Fault::IndexOutOfBounds)?,
+                    _ => return Err(Fault::TypeMismatch),
+                };
+                write_val!(get_op!(1), val);
+                Ok(Action::Continue)
+            }
+
+            // ── VEC native operations ─────────────────────────────────────────
+            Opcode::VecSort => {
+                // In-place unstable numeric sort ascending. Non-numeric elements sort as 0.
+                let coll = self.write_target_mut(get_op!(0))?;
+                match coll {
+                    Value::Vec(v) => v.0.sort_unstable_by(|a, b| {
+                        let ai = numeric_as_i64(a).unwrap_or(0);
+                        let bi = numeric_as_i64(b).unwrap_or(0);
+                        ai.cmp(&bi)
+                    }),
+                    _ => return Err(Fault::TypeMismatch),
+                }
+                Ok(Action::Continue)
+            }
+            Opcode::VecFilter => {
+                // VEC_FILTER vec, op_byte, threshold, target
+                // op_byte: 0=LT, 1=EQ, 2=GT
+                let src = read_val!(get_op!(0));
+                let op_byte = as_u32(&read_val!(get_op!(1)))? as u8;
+                let threshold = read_val!(get_op!(2));
+                let result = match &src {
+                    Value::Vec(v) => {
+                        let filtered: Vec<Value> = v.0.iter().filter(|elem| {
+                            match op_byte {
+                                0 => elem.cmp_lt(&threshold).unwrap_or(false),
+                                1 => elem.eq_val(&threshold),
+                                2 => elem.cmp_gt(&threshold).unwrap_or(false),
+                                _ => false,
+                            }
+                        }).cloned().collect();
+                        Value::Vec(FasmVec(filtered))
+                    }
+                    _ => return Err(Fault::TypeMismatch),
+                };
+                write_val!(get_op!(3), result);
+                Ok(Action::Continue)
+            }
+            Opcode::VecMerge => {
+                // Merge two sorted VECs into a new sorted VEC (O(n+m)).
+                let a = read_val!(get_op!(0));
+                let b = read_val!(get_op!(1));
+                let result = match (&a, &b) {
+                    (Value::Vec(va), Value::Vec(vb)) => {
+                        let mut merged = Vec::with_capacity(va.0.len() + vb.0.len());
+                        let (mut ai, mut bi) = (0, 0);
+                        while ai < va.0.len() && bi < vb.0.len() {
+                            let av = numeric_as_i64(&va.0[ai]).unwrap_or(0);
+                            let bv = numeric_as_i64(&vb.0[bi]).unwrap_or(0);
+                            if av <= bv { merged.push(va.0[ai].clone()); ai += 1; }
+                            else        { merged.push(vb.0[bi].clone()); bi += 1; }
+                        }
+                        merged.extend_from_slice(&va.0[ai..]);
+                        merged.extend_from_slice(&vb.0[bi..]);
+                        Value::Vec(FasmVec(merged))
+                    }
+                    _ => return Err(Fault::TypeMismatch),
+                };
+                write_val!(get_op!(2), result);
+                Ok(Action::Continue)
+            }
+            Opcode::VecSlice => {
+                // VEC_SLICE vec, start, len, target — produces a SLICE (copied sub-range).
+                let src = read_val!(get_op!(0));
+                let start = as_u32(&read_val!(get_op!(1)))? as usize;
+                let len   = as_u32(&read_val!(get_op!(2)))? as usize;
+                let result = match &src {
+                    Value::Vec(v) => {
+                        let end = (start + len).min(v.0.len());
+                        let s = if start <= end { v.0[start..end].to_vec() } else { vec![] };
+                        Value::Slice(FasmSlice(s))
+                    }
+                    _ => return Err(Fault::TypeMismatch),
+                };
+                write_val!(get_op!(3), result);
+                Ok(Action::Continue)
+            }
+
+            // ── SPARSE operations ─────────────────────────────────────────────
+            Opcode::SparseGet => {
+                let key = as_u32(&read_val!(get_op!(1)))?;
+                let coll = read_val!(get_op!(0));
+                let val = match &coll {
+                    Value::Sparse(s) => s.get(key).cloned().ok_or(Fault::FieldNotFound)?,
+                    _ => return Err(Fault::TypeMismatch),
+                };
+                write_val!(get_op!(2), val);
+                Ok(Action::Continue)
+            }
+            Opcode::SparseSet => {
+                let key = as_u32(&read_val!(get_op!(1)))?;
+                let val = read_val!(get_op!(2));
+                let coll = self.write_target_mut(get_op!(0))?;
+                match coll {
+                    Value::Sparse(s) => s.insert(key, val),
+                    _ => return Err(Fault::TypeMismatch),
+                }
+                Ok(Action::Continue)
+            }
+            Opcode::SparseDel => {
+                let key = as_u32(&read_val!(get_op!(1)))?;
+                let coll = self.write_target_mut(get_op!(0))?;
+                match coll {
+                    Value::Sparse(s) => s.remove(key),
+                    _ => return Err(Fault::TypeMismatch),
+                }
+                Ok(Action::Continue)
+            }
+            Opcode::SparseHas => {
+                let key = as_u32(&read_val!(get_op!(1)))?;
+                let coll = read_val!(get_op!(0));
+                let has = match &coll {
+                    Value::Sparse(s) => s.contains_key(key),
+                    _ => return Err(Fault::TypeMismatch),
+                };
+                write_val!(get_op!(2), Value::Bool(has));
+                Ok(Action::Continue)
+            }
+
+            // ── BTREE operations ──────────────────────────────────────────────
+            Opcode::BTreeGet => {
+                let key = as_u32(&read_val!(get_op!(1)))?;
+                let coll = read_val!(get_op!(0));
+                let val = match &coll {
+                    Value::BTree(b) => b.get(key).cloned().ok_or(Fault::FieldNotFound)?,
+                    _ => return Err(Fault::TypeMismatch),
+                };
+                write_val!(get_op!(2), val);
+                Ok(Action::Continue)
+            }
+            Opcode::BTreeSet => {
+                let key = as_u32(&read_val!(get_op!(1)))?;
+                let val = read_val!(get_op!(2));
+                let coll = self.write_target_mut(get_op!(0))?;
+                match coll {
+                    Value::BTree(b) => b.insert(key, val),
+                    _ => return Err(Fault::TypeMismatch),
+                }
+                Ok(Action::Continue)
+            }
+            Opcode::BTreeDel => {
+                let key = as_u32(&read_val!(get_op!(1)))?;
+                let coll = self.write_target_mut(get_op!(0))?;
+                match coll {
+                    Value::BTree(b) => b.remove(key),
+                    _ => return Err(Fault::TypeMismatch),
+                }
+                Ok(Action::Continue)
+            }
+            Opcode::BTreeHas => {
+                let key = as_u32(&read_val!(get_op!(1)))?;
+                let coll = read_val!(get_op!(0));
+                let has = match &coll {
+                    Value::BTree(b) => b.contains_key(key),
+                    _ => return Err(Fault::TypeMismatch),
+                };
+                write_val!(get_op!(2), Value::Bool(has));
+                Ok(Action::Continue)
+            }
+            Opcode::BTreeMin => {
+                let coll = read_val!(get_op!(0));
+                let key = match &coll {
+                    Value::BTree(b) => b.min_key().ok_or(Fault::IndexOutOfBounds)?,
+                    _ => return Err(Fault::TypeMismatch),
+                };
+                write_val!(get_op!(1), Value::Uint32(key));
+                Ok(Action::Continue)
+            }
+            Opcode::BTreeMax => {
+                let coll = read_val!(get_op!(0));
+                let key = match &coll {
+                    Value::BTree(b) => b.max_key().ok_or(Fault::IndexOutOfBounds)?,
+                    _ => return Err(Fault::TypeMismatch),
+                };
+                write_val!(get_op!(1), Value::Uint32(key));
+                Ok(Action::Continue)
+            }
+
+            // ── BITSET operations ─────────────────────────────────────────────
+            Opcode::BitSet_ => {
+                let idx = as_u32(&read_val!(get_op!(1)))?;
+                let coll = self.write_target_mut(get_op!(0))?;
+                match coll { Value::Bitset(b) => b.set_bit(idx), _ => return Err(Fault::TypeMismatch) }
+                Ok(Action::Continue)
+            }
+            Opcode::BitClr => {
+                let idx = as_u32(&read_val!(get_op!(1)))?;
+                let coll = self.write_target_mut(get_op!(0))?;
+                match coll { Value::Bitset(b) => b.clr_bit(idx), _ => return Err(Fault::TypeMismatch) }
+                Ok(Action::Continue)
+            }
+            Opcode::BitGet => {
+                let idx = as_u32(&read_val!(get_op!(1)))?;
+                let coll = read_val!(get_op!(0));
+                let bit = match &coll {
+                    Value::Bitset(b) => b.get_bit(idx),
+                    _ => return Err(Fault::TypeMismatch),
+                };
+                write_val!(get_op!(2), Value::Bool(bit));
+                Ok(Action::Continue)
+            }
+            Opcode::BitFlip => {
+                let idx = as_u32(&read_val!(get_op!(1)))?;
+                let coll = self.write_target_mut(get_op!(0))?;
+                match coll { Value::Bitset(b) => b.flip_bit(idx), _ => return Err(Fault::TypeMismatch) }
+                Ok(Action::Continue)
+            }
+            Opcode::BitCount => {
+                let coll = read_val!(get_op!(0));
+                let count = match &coll {
+                    Value::Bitset(b) => b.popcount(),
+                    _ => return Err(Fault::TypeMismatch),
+                };
+                write_val!(get_op!(1), Value::Uint32(count));
+                Ok(Action::Continue)
+            }
+            Opcode::BitAnd => {
+                let src_val = read_val!(get_op!(1));
+                let dst = self.write_target_mut(get_op!(0))?;
+                match (dst, &src_val) {
+                    (Value::Bitset(d), Value::Bitset(s)) => {
+                        let min = d.bytes.len().min(s.bytes.len());
+                        for i in 0..min { d.bytes[i] &= s.bytes[i]; }
+                        for i in min..d.bytes.len() { d.bytes[i] = 0; }
+                    }
+                    _ => return Err(Fault::TypeMismatch),
+                }
+                Ok(Action::Continue)
+            }
+            Opcode::BitOr => {
+                let src_val = read_val!(get_op!(1));
+                let dst = self.write_target_mut(get_op!(0))?;
+                match (dst, &src_val) {
+                    (Value::Bitset(d), Value::Bitset(s)) => {
+                        if s.bytes.len() > d.bytes.len() { d.bytes.resize(s.bytes.len(), 0); }
+                        for i in 0..s.bytes.len() { d.bytes[i] |= s.bytes[i]; }
+                    }
+                    _ => return Err(Fault::TypeMismatch),
+                }
+                Ok(Action::Continue)
+            }
+            Opcode::BitXor => {
+                let src_val = read_val!(get_op!(1));
+                let dst = self.write_target_mut(get_op!(0))?;
+                match (dst, &src_val) {
+                    (Value::Bitset(d), Value::Bitset(s)) => {
+                        if s.bytes.len() > d.bytes.len() { d.bytes.resize(s.bytes.len(), 0); }
+                        for i in 0..s.bytes.len() { d.bytes[i] ^= s.bytes[i]; }
+                    }
+                    _ => return Err(Fault::TypeMismatch),
+                }
+                Ok(Action::Continue)
+            }
+            Opcode::BitGrow => {
+                let n_bits = as_u32(&read_val!(get_op!(1)))?;
+                let coll = self.write_target_mut(get_op!(0))?;
+                match coll {
+                    Value::Bitset(b) => b.grow_to(b.len + n_bits),
+                    _ => return Err(Fault::TypeMismatch),
+                }
+                Ok(Action::Continue)
+            }
+
+            // ── BITVEC operations ─────────────────────────────────────────────
+            Opcode::BitvecRead => {
+                // BITVEC_READ bv, bit_start, bit_len, target
+                let bit_start = as_u64(&read_val!(get_op!(1)))?;
+                let bit_len   = as_u32(&read_val!(get_op!(2)))?;
+                let coll = read_val!(get_op!(0));
+                let result = match &coll {
+                    Value::Bitvec(bv) => bv.read_bits(bit_start, bit_len),
+                    _ => return Err(Fault::TypeMismatch),
+                };
+                write_val!(get_op!(3), Value::Uint64(result));
+                Ok(Action::Continue)
+            }
+            Opcode::BitvecWrite => {
+                // BITVEC_WRITE bv, bit_start, bit_len, value
+                let bit_start = as_u64(&read_val!(get_op!(1)))?;
+                let bit_len   = as_u32(&read_val!(get_op!(2)))?;
+                let value     = as_u64(&read_val!(get_op!(3)))?;
+                let coll = self.write_target_mut(get_op!(0))?;
+                match coll {
+                    Value::Bitvec(bv) => bv.write_bits(bit_start, bit_len, value),
+                    _ => return Err(Fault::TypeMismatch),
+                }
+                Ok(Action::Continue)
+            }
+            Opcode::BitvecPush => {
+                // BITVEC_PUSH bv, value, bit_len
+                let value   = as_u64(&read_val!(get_op!(1)))?;
+                let bit_len = as_u32(&read_val!(get_op!(2)))?;
+                let coll = self.write_target_mut(get_op!(0))?;
+                match coll {
+                    Value::Bitvec(bv) => bv.push_bits(value, bit_len),
+                    _ => return Err(Fault::TypeMismatch),
+                }
                 Ok(Action::Continue)
             }
         }
@@ -967,6 +1316,10 @@ fn as_u32(v: &Value) -> Result<u32, Fault> {
     })
 }
 
+fn as_u64(v: &Value) -> Result<u64, Fault> {
+    numeric_as_u64(v).ok_or(Fault::TypeMismatch)
+}
+
 fn imm_to_value(imm: &Immediate) -> Value {
     match imm {
         Immediate::Bool(b)   => Value::Bool(*b),
@@ -1021,6 +1374,12 @@ fn default_for_type(t: FasmType) -> Value {
         FasmType::Queue   => Value::Queue(FasmQueue::default()),
         FasmType::HeapMin => Value::HeapMin(FasmHeapMin::default()),
         FasmType::HeapMax => Value::HeapMax(FasmHeapMax::default()),
+        FasmType::Sparse  => Value::Sparse(FasmSparse::default()),
+        FasmType::BTree   => Value::BTree(FasmBTree::default()),
+        FasmType::Slice   => Value::Slice(FasmSlice::default()),
+        FasmType::Deque   => Value::Deque(FasmDeque::default()),
+        FasmType::Bitset  => Value::Bitset(FasmBitset::default()),
+        FasmType::Bitvec  => Value::Bitvec(FasmBitvec::default()),
         FasmType::Option  => Value::Option(Box::new(FasmOption::None)),
         FasmType::Result  => Value::Result(Box::new(FasmResult::Err(0))),
         FasmType::Future  => Value::Future(None),

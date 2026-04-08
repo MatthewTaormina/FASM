@@ -1,0 +1,74 @@
+// bitset_bitvec_demo.fasm
+// Demonstrates BITSET (per-bit boolean array) and BITVEC (N-bit field storage).
+
+FUNC Main
+    // ── BITSET demo ───────────────────────────────────────────────────────
+    LOCAL 0, BITSET, bs1    // bs: empty bitset
+    LOCAL 1, UINT32, tmp1   // tmp
+
+    BIT_GROW bs1, 16          // grow to 16 bits
+    LEN bs1, tmp1
+    SYSCALL 0, tmp1            // print len → 16
+
+    BIT_SET bs1, 0            // set bit 0
+    BIT_SET bs1, 3            // set bit 3
+    BIT_SET bs1, 7            // set bit 7
+    BIT_SET bs1, 15           // set bit 15
+
+    BIT_COUNT bs1, tmp1
+    SYSCALL 0, tmp1            // print popcount → 4
+
+    BIT_GET bs1, 3, tmp1
+    SYSCALL 0, tmp1            // print bit 3 → true
+
+    BIT_CLR bs1, 3
+    BIT_GET bs1, 3, tmp1
+    SYSCALL 0, tmp1            // print bit 3 → false
+
+    BIT_FLIP bs1, 0
+    BIT_GET bs1, 0, tmp1
+    SYSCALL 0, tmp1            // print bit 0 → false (was true, flipped)
+
+    BIT_COUNT bs1, tmp1
+    SYSCALL 0, tmp1            // print popcount → 2 (bits 7, 15)
+
+    // ── BITSET bulk ops ──────────────────────────────────────────────────
+    LOCAL 2, BITSET, bs2
+    BIT_GROW bs2, 16
+    BIT_SET bs2, 7
+    BIT_SET bs2, 8
+
+    BIT_OR bs1, bs2             // bs1 |= bs2  → bits: 7, 8, 15
+    BIT_COUNT bs1, tmp1
+    SYSCALL 0, tmp1            // print popcount → 3
+
+    // ── BITVEC demo ───────────────────────────────────────────────────────
+    LOCAL 3, BITVEC, bv1    // bv: empty bitvec
+
+    // Pack three 4-bit nibbles: 0xA=10, 0xB=11, 0xC=12
+    BITVEC_PUSH bv1, 10, 4    // bits 0-3  = 0b1010
+    BITVEC_PUSH bv1, 11, 4    // bits 4-7  = 0b1011
+    BITVEC_PUSH bv1, 12, 4    // bits 8-11 = 0b1100
+    LEN bv1, tmp1
+    SYSCALL 0, tmp1            // print bit_len → 12
+
+    BITVEC_READ bv1, 0, 4, tmp1  // read bits 0-3 → 10
+    SYSCALL 0, tmp1
+
+    BITVEC_READ bv1, 4, 4, tmp1  // read bits 4-7 → 11
+    SYSCALL 0, tmp1
+
+    BITVEC_READ bv1, 8, 4, tmp1  // read bits 8-11 → 12
+    SYSCALL 0, tmp1
+
+    // Overwrite nibble at bits 4-7 with 0xF = 15
+    BITVEC_WRITE bv1, 4, 4, 15
+    BITVEC_READ bv1, 4, 4, tmp1
+    SYSCALL 0, tmp1            // print → 15
+
+    // Read a 12-bit field spanning all three nibbles
+    BITVEC_READ bv1, 0, 12, tmp1
+    SYSCALL 0, tmp1            // print raw 12-bit value → 0b1111_1010_1010 = 4010? (little-endian bit order)
+
+    RET NULL
+ENDF

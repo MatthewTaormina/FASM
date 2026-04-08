@@ -1,0 +1,37 @@
+// deque_demo.fasm
+// Demonstrates DEQUE: PUSH (append), PREPEND (push_front),
+// DEQUEUE (pop_front), POP_BACK, PEEK, PEEK_BACK.
+
+FUNC Main
+    LOCAL 0, DEQUE, dq1    // dq: empty deque
+    LOCAL 1, INT32, tmp1   // tmp
+
+    PUSH dq1, 10             // dq = [10]
+    PUSH dq1, 20             // dq = [10, 20]
+    PREPEND dq1, 5           // dq = [5, 10, 20]
+    PREPEND dq1, 1           // dq = [1, 5, 10, 20]
+
+    LEN dq1, tmp1
+    SYSCALL 0, tmp1           // print len → 4
+
+    PEEK dq1, tmp1
+    SYSCALL 0, tmp1           // print front → 1
+
+    PEEK_BACK dq1, tmp1
+    SYSCALL 0, tmp1           // print back  → 20
+
+    DEQUEUE dq1, tmp1
+    SYSCALL 0, tmp1           // pop_front   → 1
+
+    POP_BACK dq1, tmp1
+    SYSCALL 0, tmp1           // pop_back    → 20
+
+    LEN dq1, tmp1
+    SYSCALL 0, tmp1           // print len   → 2
+
+    // Remaining: [5, 10]
+    PEEK dq1, tmp1
+    SYSCALL 0, tmp1           // print front → 5
+
+    RET NULL
+ENDF

@@ -1,0 +1,50 @@
+// sparse_btree_demo.fasm
+// Demonstrates SPARSE (FxHashMap) and BTREE (BTreeMap) collections.
+// All keys are integer indices. Values are integers.
+
+FUNC Main
+    // ── SPARSE demo ──────────────────────────────────────────────────────
+    LOCAL 0, SPARSE, s1         // s: empty sparse array
+    LOCAL 1, INT32, tmp1        // tmp
+
+    SPARSE_SET s1, 10, 42        // s[10] = 42
+    SPARSE_SET s1, 200, 99       // s[200] = 99
+    SPARSE_SET s1, 5, 7          // s[5]   = 7
+
+    SPARSE_HAS s1, 10, tmp1         // has = s.contains(10)
+    SYSCALL 0, tmp1                // print has  → true
+
+    SPARSE_GET s1, 10, tmp1
+    SYSCALL 0, tmp1                // print s[10] → 42
+
+    LEN s1, tmp1
+    SYSCALL 0, tmp1                // print len  → 3
+
+    SPARSE_DEL s1, 10
+    LEN s1, tmp1
+    SYSCALL 0, tmp1                // print len  → 2
+
+    SPARSE_HAS s1, 10, tmp1
+    SYSCALL 0, tmp1                // print has  → false
+
+    // ── BTREE demo ───────────────────────────────────────────────────────
+    LOCAL 2, BTREE, bt1         // bt: empty ordered map
+
+    BTREE_SET bt1, 30, 300
+    BTREE_SET bt1, 5,  50
+    BTREE_SET bt1, 15, 150
+
+    BTREE_MIN bt1, tmp1
+    SYSCALL 0, tmp1                // print min key → 5
+
+    BTREE_MAX bt1, tmp1
+    SYSCALL 0, tmp1                // print max key → 30
+
+    BTREE_GET bt1, 15, tmp1
+    SYSCALL 0, tmp1                // print bt[15]  → 150
+
+    BTREE_HAS bt1, 999, tmp1
+    SYSCALL 0, tmp1                // print has     → false
+
+    RET NULL
+ENDF

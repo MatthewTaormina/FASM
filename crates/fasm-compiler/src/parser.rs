@@ -292,29 +292,35 @@ impl Parser {
 
 fn parse_fasm_type(s: &str) -> Option<FasmType> {
     match s {
-        "BOOL"     => Some(FasmType::Bool),
-        "INT8"     => Some(FasmType::Int8),
-        "INT16"    => Some(FasmType::Int16),
-        "INT32"    => Some(FasmType::Int32),
-        "INT64"    => Some(FasmType::Int64),
-        "UINT8"    => Some(FasmType::Uint8),
-        "UINT16"   => Some(FasmType::Uint16),
-        "UINT32"   => Some(FasmType::Uint32),
-        "UINT64"   => Some(FasmType::Uint64),
-        "FLOAT32"  => Some(FasmType::Float32),
-        "FLOAT64"  => Some(FasmType::Float64),
-        "REF_MUT"  => Some(FasmType::RefMut),
-        "REF_IMM"  => Some(FasmType::RefImm),
-        "VEC"      => Some(FasmType::Vec),
-        "STRUCT"   => Some(FasmType::Struct),
-        "STACK"    => Some(FasmType::Stack),
-        "QUEUE"    => Some(FasmType::Queue),
-        "HEAP_MIN" => Some(FasmType::HeapMin),
-        "HEAP_MAX" => Some(FasmType::HeapMax),
-        "OPTION"   => Some(FasmType::Option),
-        "RESULT"   => Some(FasmType::Result),
-        "FUTURE"   => Some(FasmType::Future),
-        _          => None,
+        "BOOL"        => Some(FasmType::Bool),
+        "INT8"        => Some(FasmType::Int8),
+        "INT16"       => Some(FasmType::Int16),
+        "INT32"       => Some(FasmType::Int32),
+        "INT64"       => Some(FasmType::Int64),
+        "UINT8"       => Some(FasmType::Uint8),
+        "UINT16"      => Some(FasmType::Uint16),
+        "UINT32"      => Some(FasmType::Uint32),
+        "UINT64"      => Some(FasmType::Uint64),
+        "FLOAT32"     => Some(FasmType::Float32),
+        "FLOAT64"     => Some(FasmType::Float64),
+        "REF_MUT"     => Some(FasmType::RefMut),
+        "REF_IMM"     => Some(FasmType::RefImm),
+        "VEC"         => Some(FasmType::Vec),
+        "STRUCT"      => Some(FasmType::Struct),
+        "STACK"       => Some(FasmType::Stack),
+        "QUEUE"       => Some(FasmType::Queue),
+        "HEAP_MIN"    => Some(FasmType::HeapMin),
+        "HEAP_MAX"    => Some(FasmType::HeapMax),
+        "SPARSE"      => Some(FasmType::Sparse),
+        "BTREE"       => Some(FasmType::BTree),
+        "SLICE"       => Some(FasmType::Slice),
+        "DEQUE"       => Some(FasmType::Deque),
+        "BITSET"      => Some(FasmType::Bitset),
+        "BITVEC"      => Some(FasmType::Bitvec),
+        "OPTION"      => Some(FasmType::Option),
+        "RESULT"      => Some(FasmType::Result),
+        "FUTURE"      => Some(FasmType::Future),
+        _             => None,
     }
 }
 
@@ -328,6 +334,18 @@ fn is_keyword(s: &str) -> bool {
         "CAST"|"TRY"|"CATCH"|"ENDTRY"|"IMPORT"|"INCLUDE"|"DEFINE"|"IFDEF"|
         "IFNDEF"|"ELSE"|"ENDIF"|"MACRO"|"ENDM"|"ASSERT"|
         "SOME"|"IS_SOME"|"UNWRAP"|"OK"|"ERR"|"IS_OK"|"UNWRAP_OK"|"UNWRAP_ERR"|
-        "HALT"
+        "HALT"|"TAIL_CALL"|
+        // DEQUE
+        "PREPEND"|"POP_BACK"|"PEEK_BACK"|
+        // VEC native ops
+        "VEC_SORT"|"VEC_FILTER"|"VEC_MERGE"|"VEC_SLICE"|
+        // SPARSE
+        "SPARSE_GET"|"SPARSE_SET"|"SPARSE_DEL"|"SPARSE_HAS"|
+        // BTREE
+        "BTREE_GET"|"BTREE_SET"|"BTREE_DEL"|"BTREE_HAS"|"BTREE_MIN"|"BTREE_MAX"|
+        // BITSET
+        "BIT_SET"|"BIT_CLR"|"BIT_GET"|"BIT_FLIP"|"BIT_COUNT"|"BIT_AND"|"BIT_OR"|"BIT_XOR"|"BIT_GROW"|
+        // BITVEC
+        "BITVEC_READ"|"BITVEC_WRITE"|"BITVEC_PUSH"
     )
 }

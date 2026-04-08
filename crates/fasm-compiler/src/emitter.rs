@@ -450,6 +450,192 @@ fn emit_instr(instr: &Instr, out: &mut Vec<Instruction>, ctx: &mut FuncCtx) -> R
             return Ok(());
         }
 
+
+
+        // ── DEQUE extensions ────────────────────────────────────────────────
+        "PREPEND" => {
+            let coll = slot!(0); let val = val_op!(1);
+            out.push(Instruction { opcode: Opcode::Prepend, operands: vec![Operand::Slot(coll), val] });
+            return Ok(());
+        }
+        "POP_BACK" => {
+            let coll = slot!(0); let tgt = slot!(1);
+            out.push(Instruction { opcode: Opcode::PopBack, operands: vec![Operand::Slot(coll), Operand::Slot(tgt)] });
+            return Ok(());
+        }
+        "PEEK_BACK" => {
+            let coll = slot!(0); let tgt = slot!(1);
+            out.push(Instruction { opcode: Opcode::PeekBack, operands: vec![Operand::Slot(coll), Operand::Slot(tgt)] });
+            return Ok(());
+        }
+
+        // ── VEC native ops ───────────────────────────────────────────────────
+        "VEC_SORT" => {
+            let coll = slot!(0);
+            out.push(Instruction { opcode: Opcode::VecSort, operands: vec![Operand::Slot(coll)] });
+            return Ok(());
+        }
+        "VEC_FILTER" => {
+            // VEC_FILTER vec, LT|EQ|GT, threshold, target
+            let coll  = val_op!(0);
+            let op_byte = match op!(1) {
+                AstValue::Ident(s) => match s.as_str() {
+                    "OP_LT" => Operand::Imm(Immediate::Uint32(0)),
+                    "OP_EQ" => Operand::Imm(Immediate::Uint32(1)),
+                    "OP_GT" => Operand::Imm(Immediate::Uint32(2)),
+                    _ => return Err(format!("Line {}: VEC_FILTER op must be OP_LT, OP_EQ, or OP_GT", ln)),
+                },
+                _ => return Err(format!("Line {}: VEC_FILTER op must be OP_LT, OP_EQ, or OP_GT", ln)),
+            };
+            let threshold = val_op!(2);
+            let tgt = slot!(3);
+            out.push(Instruction { opcode: Opcode::VecFilter, operands: vec![coll, op_byte, threshold, Operand::Slot(tgt)] });
+            return Ok(());
+        }
+        "VEC_MERGE" => {
+            let a = val_op!(0); let b = val_op!(1); let tgt = slot!(2);
+            out.push(Instruction { opcode: Opcode::VecMerge, operands: vec![a, b, Operand::Slot(tgt)] });
+            return Ok(());
+        }
+        "VEC_SLICE" => {
+            // VEC_SLICE vec, start, len, target
+            let src   = val_op!(0);
+            let start = val_op!(1);
+            let len   = val_op!(2);
+            let tgt   = slot!(3);
+            out.push(Instruction { opcode: Opcode::VecSlice, operands: vec![src, start, len, Operand::Slot(tgt)] });
+            return Ok(());
+        }
+
+        // ── SPARSE ops ───────────────────────────────────────────────────────
+        "SPARSE_GET" => {
+            let coll = val_op!(0); let key = val_op!(1); let tgt = slot!(2);
+            out.push(Instruction { opcode: Opcode::SparseGet, operands: vec![coll, key, Operand::Slot(tgt)] });
+            return Ok(());
+        }
+        "SPARSE_SET" => {
+            let coll = slot!(0); let key = val_op!(1); let val = val_op!(2);
+            out.push(Instruction { opcode: Opcode::SparseSet, operands: vec![Operand::Slot(coll), key, val] });
+            return Ok(());
+        }
+        "SPARSE_DEL" => {
+            let coll = slot!(0); let key = val_op!(1);
+            out.push(Instruction { opcode: Opcode::SparseDel, operands: vec![Operand::Slot(coll), key] });
+            return Ok(());
+        }
+        "SPARSE_HAS" => {
+            let coll = val_op!(0); let key = val_op!(1); let tgt = slot!(2);
+            out.push(Instruction { opcode: Opcode::SparseHas, operands: vec![coll, key, Operand::Slot(tgt)] });
+            return Ok(());
+        }
+
+        // ── BTREE ops ────────────────────────────────────────────────────────
+        "BTREE_GET" => {
+            let coll = val_op!(0); let key = val_op!(1); let tgt = slot!(2);
+            out.push(Instruction { opcode: Opcode::BTreeGet, operands: vec![coll, key, Operand::Slot(tgt)] });
+            return Ok(());
+        }
+        "BTREE_SET" => {
+            let coll = slot!(0); let key = val_op!(1); let val = val_op!(2);
+            out.push(Instruction { opcode: Opcode::BTreeSet, operands: vec![Operand::Slot(coll), key, val] });
+            return Ok(());
+        }
+        "BTREE_DEL" => {
+            let coll = slot!(0); let key = val_op!(1);
+            out.push(Instruction { opcode: Opcode::BTreeDel, operands: vec![Operand::Slot(coll), key] });
+            return Ok(());
+        }
+        "BTREE_HAS" => {
+            let coll = val_op!(0); let key = val_op!(1); let tgt = slot!(2);
+            out.push(Instruction { opcode: Opcode::BTreeHas, operands: vec![coll, key, Operand::Slot(tgt)] });
+            return Ok(());
+        }
+        "BTREE_MIN" => {
+            let coll = val_op!(0); let tgt = slot!(1);
+            out.push(Instruction { opcode: Opcode::BTreeMin, operands: vec![coll, Operand::Slot(tgt)] });
+            return Ok(());
+        }
+        "BTREE_MAX" => {
+            let coll = val_op!(0); let tgt = slot!(1);
+            out.push(Instruction { opcode: Opcode::BTreeMax, operands: vec![coll, Operand::Slot(tgt)] });
+            return Ok(());
+        }
+
+        // ── BITSET ops ───────────────────────────────────────────────────────
+        "BIT_SET" => {
+            let bs = slot!(0); let idx = val_op!(1);
+            out.push(Instruction { opcode: Opcode::BitSet_, operands: vec![Operand::Slot(bs), idx] });
+            return Ok(());
+        }
+        "BIT_CLR" => {
+            let bs = slot!(0); let idx = val_op!(1);
+            out.push(Instruction { opcode: Opcode::BitClr, operands: vec![Operand::Slot(bs), idx] });
+            return Ok(());
+        }
+        "BIT_GET" => {
+            let bs = val_op!(0); let idx = val_op!(1); let tgt = slot!(2);
+            out.push(Instruction { opcode: Opcode::BitGet, operands: vec![bs, idx, Operand::Slot(tgt)] });
+            return Ok(());
+        }
+        "BIT_FLIP" => {
+            let bs = slot!(0); let idx = val_op!(1);
+            out.push(Instruction { opcode: Opcode::BitFlip, operands: vec![Operand::Slot(bs), idx] });
+            return Ok(());
+        }
+        "BIT_COUNT" => {
+            let bs = val_op!(0); let tgt = slot!(1);
+            out.push(Instruction { opcode: Opcode::BitCount, operands: vec![bs, Operand::Slot(tgt)] });
+            return Ok(());
+        }
+        "BIT_AND" => {
+            let dst = slot!(0); let src = val_op!(1);
+            out.push(Instruction { opcode: Opcode::BitAnd, operands: vec![Operand::Slot(dst), src] });
+            return Ok(());
+        }
+        "BIT_OR" => {
+            let dst = slot!(0); let src = val_op!(1);
+            out.push(Instruction { opcode: Opcode::BitOr, operands: vec![Operand::Slot(dst), src] });
+            return Ok(());
+        }
+        "BIT_XOR" => {
+            let dst = slot!(0); let src = val_op!(1);
+            out.push(Instruction { opcode: Opcode::BitXor, operands: vec![Operand::Slot(dst), src] });
+            return Ok(());
+        }
+        "BIT_GROW" => {
+            let bs = slot!(0); let n = val_op!(1);
+            out.push(Instruction { opcode: Opcode::BitGrow, operands: vec![Operand::Slot(bs), n] });
+            return Ok(());
+        }
+
+        // ── BITVEC ops ───────────────────────────────────────────────────────
+        "BITVEC_READ" => {
+            // BITVEC_READ bv, bit_start, bit_len, target
+            let bv    = val_op!(0);
+            let start = val_op!(1);
+            let blen  = val_op!(2);
+            let tgt   = slot!(3);
+            out.push(Instruction { opcode: Opcode::BitvecRead, operands: vec![bv, start, blen, Operand::Slot(tgt)] });
+            return Ok(());
+        }
+        "BITVEC_WRITE" => {
+            // BITVEC_WRITE bv, bit_start, bit_len, value
+            let bv    = slot!(0);
+            let start = val_op!(1);
+            let blen  = val_op!(2);
+            let val   = val_op!(3);
+            out.push(Instruction { opcode: Opcode::BitvecWrite, operands: vec![Operand::Slot(bv), start, blen, val] });
+            return Ok(());
+        }
+        "BITVEC_PUSH" => {
+            // BITVEC_PUSH bv, value, bit_len
+            let bv   = slot!(0);
+            let val  = val_op!(1);
+            let blen = val_op!(2);
+            out.push(Instruction { opcode: Opcode::BitvecPush, operands: vec![Operand::Slot(bv), val, blen] });
+            return Ok(());
+        }
+
         _ => return Err(format!("Line {}: unknown instruction '{}'", ln, instr.mnemonic)),
     };
 
@@ -571,6 +757,12 @@ fn ast_val_type(val: &AstValue) -> Result<FasmType, String> {
                 "QUEUE"    => Ok(Queue),
                 "HEAP_MIN" => Ok(HeapMin),
                 "HEAP_MAX" => Ok(HeapMax),
+                "SPARSE"   => Ok(Sparse),
+                "BTREE"    => Ok(BTree),
+                "SLICE"    => Ok(Slice),
+                "DEQUE"    => Ok(Deque),
+                "BITSET"   => Ok(Bitset),
+                "BITVEC"   => Ok(Bitvec),
                 "OPTION"   => Ok(Option),
                 "RESULT"   => Ok(Result),
                 "FUTURE"   => Ok(Future),

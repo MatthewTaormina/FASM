@@ -326,6 +326,39 @@ A First-In-First-Out (FIFO) buffer.
 - **Implementation**: Circular buffer to prevent fragmentation.
 - **Instructions**: Requires `ENQUEUE` and `DEQUEUE`.
 
+### SPARSE
+A high-performance sparse array mapping `UINT32` indices to structured data.
+- **Features**: O(1) insertions/lookups without contiguous allocation.
+- **Internal**: Implemented with `FxHashMap` for raw integer hashing speed.
+- **Instructions**: `SPARSE_GET`, `SPARSE_SET`, `SPARSE_DEL`, `SPARSE_HAS`.
+
+### BTREE
+An ordered map keyed by `UINT32` indices.
+- **Features**: Inherently sorted storage with O(log n) performance.
+- **Internal**: Implemented with Rust's `BTreeMap`. Ideal for spatial iteration or deriving min/max limits.
+- **Instructions**: `BTREE_GET`, `BTREE_SET`, `BTREE_DEL`, `BTREE_HAS`, `BTREE_MIN`, `BTREE_MAX`.
+
+### SLICE
+A zero-copy, read-only sequence viewing a contiguous region of an existing `VEC`.
+- **Features**: Subsetting of arrays instantaneously without cloning buffers.
+- **Constraint**: Strictly immutable. Modification triggers a `TypeMismatch`.
+- **Instructions**: Created via `VEC_SLICE`. `LEN` and `GET_IDX` applicable.
+
+### DEQUE
+A double-ended queue permitting expansion or truncation at both sequence ends.
+- **Features**: Unlocks the sequence front for `O(1)` mutations alongside the back.
+- **Instructions**: `PREPEND`, `PUSH` (append), `POP_BACK`, `DEQUEUE` (pop front), `PEEK_BACK`, `PEEK` (front). 
+
+### BITSET
+A growable array strictly designed for dense 1-bit boolean storage.
+- **Features**: Perfect bit-packing bypassing 8-bit byte alignment gaps natively.
+- **Instructions**: `BIT_GROW`, `BIT_SET`, `BIT_CLR`, `BIT_FLIP`, `BIT_GET`, `BIT_COUNT`, `BIT_OR`, `BIT_AND`, `BIT_XOR`.
+
+### BITVEC
+A dense packing sequence for arbitrary variable-wide bit fields.
+- **Features**: Read/Write precise subsets of exactly `K` bits, seamlessly spanning nibbles / chunks.
+- **Instructions**: `BITVEC_PUSH`, `BITVEC_READ`, `BITVEC_WRITE`.
+
 ### Wrapper Types
 
 ### OPTION
@@ -386,7 +419,19 @@ Removes the entry at `key` from a `STRUCT`.
 - **Constraint**: Silent no-op if the key does not exist.
 
 ### LEN collection, target
-Stores the current element count of a `VEC`, `STACK`, `QUEUE`, or `HEAP` into `target` (type `UINT32`).
+Stores the current element count of a `VEC`, `STACK`, `QUEUE`, `HEAP`, `SPARSE`, `BTREE`, `SLICE`, `DEQUE`, `BITSET`, or `BITVEC` into `target` (type `UINT32`).
+
+### VEC_SORT vec
+Sorts the contents of a `VEC` in-place natively.
+
+### VEC_FILTER vec, OP_EQ|OP_LT|OP_GT, threshold, target
+Natively iterates `vec`, retaining elements that satisfy the comparison against `threshold`. Clones matching elements into the `VEC` at `target`.
+
+### VEC_MERGE v1, v2, target
+Merges elements from `v1` and `v2` into a single, unified block at `target`.
+
+### VEC_SLICE vec, start, length, target
+Instantiates a zero-copy read-only `SLICE` bounded on `vec` exclusively, dumping the slice handle dynamically to `target`.
 
 ## Wrapper Instructions
 

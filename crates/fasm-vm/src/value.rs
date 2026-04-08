@@ -1,4 +1,5 @@
-use std::collections::VecDeque;
+use std::collections::{VecDeque, BTreeMap};
+use rustc_hash::FxHashMap;
 use serde::{Serialize, Deserialize};
 
 /// The runtime value type for every FASM slot.
@@ -20,21 +21,37 @@ pub enum Value {
     RefMut(bool, u32),
     /// Immutable reference: (is_global, index)
     RefImm(bool, u32),
-    // Collections stored by value inside the slot
+    // ── Core collections ────────────────────────────────────────────────────
     Vec(FasmVec),
     Struct(FasmStruct),
     Stack(FasmStack),
     Queue(FasmQueue),
     HeapMin(FasmHeapMin),
     HeapMax(FasmHeapMax),
-    // Wrappers
+    // ── High-performance collections ─────────────────────────────────────────
+    /// FxHashMap<u32, Value> — O(1) average integer-keyed sparse array.
+    /// Uses FxHash (same hasher as rustc) — non-cryptographic, optimized for integer keys.
+    Sparse(FasmSparse),
+    /// BTreeMap<u32, Value> — O(log n) ordered integer-keyed map.
+    /// Provides stable ordered iteration; use BTREE_MIN / BTREE_MAX for range traversal.
+    BTree(FasmBTree),
+    /// Read-only copied sub-range of a VEC. Produced by VEC_SLICE.
+    /// Immutable — writes fault with TypeMismatch. GET_IDX and LEN are O(1).
+    Slice(FasmSlice),
+    /// Double-ended queue — O(1) push/pop from both ends via VecDeque.
+    Deque(FasmDeque),
+    /// Bit-addressable boolean array backed by Vec<u8>. LEN returns bits.
+    Bitset(FasmBitset),
+    /// Arbitrary-width bit field storage. BITVEC_READ/WRITE access N-bit fields.
+    Bitvec(FasmBitvec),
+    // ── Wrapper types ─────────────────────────────────────────────────────────
     Option(Box<FasmOption>),
     Result(Box<FasmResult>),
     /// Future: resolved value (None = pending)
     Future(Option<Box<Value>>),
 }
 
-// ─── collection types ────────────────────────────────────────────────────────
+// ─── Core collection types ────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct FasmVec(pub Vec<Value>);
@@ -80,6 +97,189 @@ pub struct FasmHeapMin(pub Vec<Value>);
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct FasmHeapMax(pub Vec<Value>);
 
+// ─── High-performance collection types ───────────────────────────────────────
+
+/// Sparse array backed by FxHashMap<u32, Value>.
+/// FxHash has zero per-insertion DoS protection overhead — ideal for integer keys.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct FasmSparse(pub FxHashMap<u32, Value>);
+
+// Manual PartialEq: FxHashMap is HashMap underneath, which implements PartialEq.
+impl PartialEq for FasmSparse {
+    fn eq(&self, other: &Self) -> bool { self.0 == other.0 }
+}
+
+impl FasmSparse {
+    #[inline] pub fn get(&self, key: u32) -> Option<&Value> { self.0.get(&key) }
+    #[inline] pub fn insert(&mut self, key: u32, val: Value) { self.0.insert(key, val); }
+    #[inline] pub fn remove(&mut self, key: u32) { self.0.remove(&key); }
+    #[inline] pub fn contains_key(&self, key: u32) -> bool { self.0.contains_key(&key) }
+    #[inline] pub fn len(&self) -> usize { self.0.len() }
+    #[inline] pub fn is_empty(&self) -> bool { self.0.is_empty() }
+}
+
+/// Ordered map backed by BTreeMap<u32, Value>.
+/// Provides O(log n) get/set/del and O(1) min/max key access via tree structure.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct FasmBTree(pub BTreeMap<u32, Value>);
+
+impl FasmBTree {
+    #[inline] pub fn get(&self, key: u32) -> Option<&Value> { self.0.get(&key) }
+    #[inline] pub fn insert(&mut self, key: u32, val: Value) { self.0.insert(key, val); }
+    #[inline] pub fn remove(&mut self, key: u32) { self.0.remove(&key); }
+    #[inline] pub fn contains_key(&self, key: u32) -> bool { self.0.contains_key(&key) }
+    #[inline] pub fn len(&self) -> usize { self.0.len() }
+    #[inline] pub fn is_empty(&self) -> bool { self.0.is_empty() }
+    /// O(log n) — BTree keeps smallest key at leftmost node.
+    #[inline] pub fn min_key(&self) -> Option<u32> { self.0.keys().next().copied() }
+    /// O(log n) — BTree keeps largest key at rightmost node.
+    #[inline] pub fn max_key(&self) -> Option<u32> { self.0.keys().next_back().copied() }
+}
+
+/// Read-only copied sub-range view of a VEC.
+/// Created by VEC_SLICE — O(len) copy at creation, O(1) GET_IDX thereafter.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct FasmSlice(pub Vec<Value>);
+
+impl FasmSlice {
+    #[inline] pub fn get(&self, idx: usize) -> Option<&Value> { self.0.get(idx) }
+    #[inline] pub fn len(&self) -> usize { self.0.len() }
+    #[inline] pub fn is_empty(&self) -> bool { self.0.is_empty() }
+}
+
+/// Double-ended queue — O(1) push/pop from both ends.
+/// Supports PUSH (append), PREPEND (push_front), DEQUEUE (pop_front), POP_BACK, PEEK, PEEK_BACK.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct FasmDeque(pub VecDeque<Value>);
+
+/// Bit-addressable boolean array backed by Vec<u8>.
+/// Bit `i` lives in byte `i/8`, at bit position `i%8` (LSB-first within each byte).
+/// LEN returns the logical bit count, not the byte count.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct FasmBitset {
+    pub bytes: Vec<u8>,
+    pub len: u32,  // logical length in bits
+}
+
+impl FasmBitset {
+    pub fn new(len_bits: u32) -> Self {
+        let n_bytes = ((len_bits + 7) / 8) as usize;
+        Self { bytes: vec![0u8; n_bytes], len: len_bits }
+    }
+
+    /// Set bit at index (auto-grows if necessary).
+    #[inline]
+    pub fn set_bit(&mut self, idx: u32) {
+        let byte_idx = (idx / 8) as usize;
+        if byte_idx >= self.bytes.len() { self.grow_to(idx + 1); }
+        self.bytes[byte_idx] |= 1 << (idx % 8);
+    }
+
+    /// Clear bit at index. No-op if beyond current length.
+    #[inline]
+    pub fn clr_bit(&mut self, idx: u32) {
+        let byte_idx = (idx / 8) as usize;
+        if byte_idx < self.bytes.len() {
+            self.bytes[byte_idx] &= !(1 << (idx % 8));
+        }
+    }
+
+    /// Get bit value. Returns false for out-of-range indices.
+    #[inline]
+    pub fn get_bit(&self, idx: u32) -> bool {
+        let byte_idx = (idx / 8) as usize;
+        if byte_idx < self.bytes.len() {
+            (self.bytes[byte_idx] >> (idx % 8)) & 1 == 1
+        } else {
+            false
+        }
+    }
+
+    /// Toggle bit at index (auto-grows if necessary).
+    #[inline]
+    pub fn flip_bit(&mut self, idx: u32) {
+        let byte_idx = (idx / 8) as usize;
+        if byte_idx >= self.bytes.len() { self.grow_to(idx + 1); }
+        self.bytes[byte_idx] ^= 1 << (idx % 8);
+    }
+
+    /// Count set bits (hardware popcount via Rust's u8::count_ones).
+    #[inline]
+    pub fn popcount(&self) -> u32 {
+        self.bytes.iter().map(|b| b.count_ones()).sum()
+    }
+
+    /// Extend the bitset to at least `new_len_bits` capacity (zero-fill new bits).
+    pub fn grow_to(&mut self, new_len_bits: u32) {
+        let new_byte_count = ((new_len_bits + 7) / 8) as usize;
+        if new_byte_count > self.bytes.len() {
+            self.bytes.resize(new_byte_count, 0);
+        }
+        if new_len_bits > self.len {
+            self.len = new_len_bits;
+        }
+    }
+}
+
+/// Arbitrary-width bit field storage backed by Vec<u8>.
+/// Bits are packed LSB-first within each byte (same layout as BITSET).
+/// BITVEC_READ/WRITE can access fields up to 64 bits wide.
+/// Good for non-byte-aligned encodings: 4-bit nibbles, 12-bit audio samples, etc.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct FasmBitvec {
+    pub bytes: Vec<u8>,
+    pub bit_len: u64,  // total bits logically stored
+}
+
+impl FasmBitvec {
+    /// Read up to 64 consecutive bits starting at `bit_start`. Returns 0 for out-of-range.
+    pub fn read_bits(&self, bit_start: u64, bit_len: u32) -> u64 {
+        let bit_len = (bit_len as u64).min(64);
+        let mut result = 0u64;
+        for i in 0..bit_len {
+            let pos = bit_start + i;
+            let byte_idx = (pos / 8) as usize;
+            let bit_pos = (pos % 8) as u32;
+            if byte_idx < self.bytes.len() {
+                let bit = ((self.bytes[byte_idx] >> bit_pos) & 1) as u64;
+                result |= bit << i;
+            }
+        }
+        result
+    }
+
+    /// Write up to 64 bits from `value` starting at `bit_start`. Auto-grows as needed.
+    pub fn write_bits(&mut self, bit_start: u64, bit_len: u32, value: u64) {
+        let bit_len = (bit_len as u64).min(64);
+        let end_bit = bit_start + bit_len;
+        let needed_bytes = ((end_bit + 7) / 8) as usize;
+        if needed_bytes > self.bytes.len() {
+            self.bytes.resize(needed_bytes, 0);
+        }
+        if end_bit > self.bit_len {
+            self.bit_len = end_bit;
+        }
+        for i in 0..bit_len {
+            let pos = bit_start + i;
+            let byte_idx = (pos / 8) as usize;
+            let bit_pos = (pos % 8) as u32;
+            let v = ((value >> i) & 1) as u8;
+            if v == 1 {
+                self.bytes[byte_idx] |= 1 << bit_pos;
+            } else {
+                self.bytes[byte_idx] &= !(1 << bit_pos);
+            }
+        }
+    }
+
+    /// Append `bit_len` bits from `value` (LSB-first) at the current end.
+    #[inline]
+    pub fn push_bits(&mut self, value: u64, bit_len: u32) {
+        let start = self.bit_len;
+        self.write_bits(start, bit_len, value);
+    }
+}
+
 // ─── wrapper types ───────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -117,29 +317,35 @@ impl Value {
 
     pub fn type_name(&self) -> &'static str {
         match self {
-            Value::Null      => "NULL",
-            Value::Bool(_)   => "BOOL",
-            Value::Int8(_)   => "INT8",
-            Value::Int16(_)  => "INT16",
-            Value::Int32(_)  => "INT32",
-            Value::Int64(_)  => "INT64",
-            Value::Uint8(_)  => "UINT8",
-            Value::Uint16(_) => "UINT16",
-            Value::Uint32(_) => "UINT32",
-            Value::Uint64(_) => "UINT64",
-            Value::Float32(_)=> "FLOAT32",
-            Value::Float64(_)=> "FLOAT64",
-            Value::RefMut(..)=> "REF_MUT",
-            Value::RefImm(..)=> "REF_IMM",
-            Value::Vec(_)    => "VEC",
-            Value::Struct(_) => "STRUCT",
-            Value::Stack(_)  => "STACK",
-            Value::Queue(_)  => "QUEUE",
-            Value::HeapMin(_)=> "HEAP_MIN",
-            Value::HeapMax(_)=> "HEAP_MAX",
-            Value::Option(_) => "OPTION",
-            Value::Result(_) => "RESULT",
-            Value::Future(_) => "FUTURE",
+            Value::Null       => "NULL",
+            Value::Bool(_)    => "BOOL",
+            Value::Int8(_)    => "INT8",
+            Value::Int16(_)   => "INT16",
+            Value::Int32(_)   => "INT32",
+            Value::Int64(_)   => "INT64",
+            Value::Uint8(_)   => "UINT8",
+            Value::Uint16(_)  => "UINT16",
+            Value::Uint32(_)  => "UINT32",
+            Value::Uint64(_)  => "UINT64",
+            Value::Float32(_) => "FLOAT32",
+            Value::Float64(_) => "FLOAT64",
+            Value::RefMut(..) => "REF_MUT",
+            Value::RefImm(..) => "REF_IMM",
+            Value::Vec(_)     => "VEC",
+            Value::Struct(_)  => "STRUCT",
+            Value::Stack(_)   => "STACK",
+            Value::Queue(_)   => "QUEUE",
+            Value::HeapMin(_) => "HEAP_MIN",
+            Value::HeapMax(_) => "HEAP_MAX",
+            Value::Sparse(_)  => "SPARSE",
+            Value::BTree(_)   => "BTREE",
+            Value::Slice(_)   => "SLICE",
+            Value::Deque(_)   => "DEQUE",
+            Value::Bitset(_)  => "BITSET",
+            Value::Bitvec(_)  => "BITVEC",
+            Value::Option(_)  => "OPTION",
+            Value::Result(_)  => "RESULT",
+            Value::Future(_)  => "FUTURE",
         }
     }
 
@@ -169,11 +375,17 @@ impl Value {
                     None => format!("[{}]", v.0.iter().map(|x| x.display()).collect::<Vec<_>>().join(", ")),
                 }
             }
-            Value::Struct(s) => format!("STRUCT({} fields)", s.0.len()),
-            Value::Stack(s)  => format!("STACK({} items)", s.0.len()),
-            Value::Queue(q)  => format!("QUEUE({} items)", q.0.len()),
-            Value::HeapMin(h)=> format!("HEAP_MIN({} items)", h.0.len()),
-            Value::HeapMax(h)=> format!("HEAP_MAX({} items)", h.0.len()),
+            Value::Struct(s)  => format!("STRUCT({} fields)", s.0.len()),
+            Value::Stack(s)   => format!("STACK({} items)", s.0.len()),
+            Value::Queue(q)   => format!("QUEUE({} items)", q.0.len()),
+            Value::HeapMin(h) => format!("HEAP_MIN({} items)", h.0.len()),
+            Value::HeapMax(h) => format!("HEAP_MAX({} items)", h.0.len()),
+            Value::Sparse(s)  => format!("SPARSE({} entries)", s.len()),
+            Value::BTree(b)   => format!("BTREE({} entries)", b.len()),
+            Value::Slice(s)   => format!("SLICE({} items)", s.len()),
+            Value::Deque(d)   => format!("DEQUE({} items)", d.0.len()),
+            Value::Bitset(b)  => format!("BITSET({} bits, {} set)", b.len, b.popcount()),
+            Value::Bitvec(bv) => format!("BITVEC({} bits)", bv.bit_len),
             Value::RefMut(g,i) => format!("REF_MUT({}:{})", if *g {"global"} else {"local"}, i),
             Value::RefImm(g,i) => format!("REF_IMM({}:{})", if *g {"global"} else {"local"}, i),
             Value::Option(o) => match o.as_ref() {
@@ -210,7 +422,7 @@ impl Value {
         })
     }
 
-    pub fn cmp_lt(&self, other: &Value) -> Option<bool> { numeric_cmp(self, other, |a,b| a<b, |a,b| a<b) }
+    pub fn cmp_lt(&self, other: &Value) -> Option<bool>  { numeric_cmp(self, other, |a,b| a<b, |a,b| a<b) }
     pub fn cmp_lte(&self, other: &Value) -> Option<bool> { numeric_cmp(self, other, |a,b| a<=b, |a,b| a<=b) }
     pub fn cmp_gt(&self, other: &Value) -> Option<bool>  { numeric_cmp(self, other, |a,b| a>b, |a,b| a>b) }
     pub fn cmp_gte(&self, other: &Value) -> Option<bool> { numeric_cmp(self, other, |a,b| a>=b, |a,b| a>=b) }
@@ -284,6 +496,22 @@ pub(crate) fn numeric_as_i64(v: &Value) -> Option<i64> {
         Value::Uint16(n)  => Some(*n as i64),
         Value::Uint32(n)  => Some(*n as i64),
         Value::Uint64(n)  => Some(*n as i64),
+        _ => None,
+    }
+}
+
+/// Extract a u64 from any integer Value. Returns None for non-integer types.
+pub(crate) fn numeric_as_u64(v: &Value) -> Option<u64> {
+    match v {
+        Value::Bool(b)    => Some(*b as u64),
+        Value::Int8(n)    => Some(*n as u64),
+        Value::Int16(n)   => Some(*n as u64),
+        Value::Int32(n)   => Some(*n as u64),
+        Value::Int64(n)   => Some(*n as u64),
+        Value::Uint8(n)   => Some(*n as u64),
+        Value::Uint16(n)  => Some(*n as u64),
+        Value::Uint32(n)  => Some(*n as u64),
+        Value::Uint64(n)  => Some(*n),
         _ => None,
     }
 }
