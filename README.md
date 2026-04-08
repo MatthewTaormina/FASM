@@ -248,6 +248,8 @@ cargo build --release
 
 ## Bytecode Format (`.fasmc`)
 
+For a detailed bytecode-level format and binary encoding layout mapping specific components, please explicitly consult the detailed specification at **[BYTECODE.md](BYTECODE.md)**. The fundamental stream operates generally under:
+
 ```
 [4 bytes]  magic: "FSMC"
 [1 byte]   version: 0x01
