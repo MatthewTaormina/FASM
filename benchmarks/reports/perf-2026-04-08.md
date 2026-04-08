@@ -1,7 +1,7 @@
 # FASM Engine — Performance Report
 
 **Date:** 2026-04-08
-**Generated:** 2026-04-08T22:07:56Z
+**Generated:** 2026-04-08T22:39:48Z
 
 ---
 
@@ -28,7 +28,7 @@
 | KPI | Target | Measured | Status |
 |---|---|---|---|
 | Cold start (compile + exec) | < 50 ms | 2 ms | ✅ PASS |
-| HTTP throughput at c=8 | ≥ 1,000 req/s | 9134.76 req/s | ✅ PASS |
+| HTTP throughput at c=8 | ≥ 1,000 req/s | 8427.01 req/s | ✅ PASS |
 | Idle memory footprint | < 64 MB | 5 MB | ✅ PASS |
 | p99 latency at c=8 | < 50 ms | 1 ms | ✅ PASS |
 
@@ -48,9 +48,9 @@
 
 | Metric | Value |
 |---|---|
-| Total build time | 120 ms |
-| fasm CLI binary size | 1211 KB |
-| fasm-engine binary size | 6051 KB |
+| Total build time | 66501 ms |
+| fasm CLI binary size | 1077 KB |
+| fasm-engine binary size | 4671 KB |
 
 > **Note:** Incremental builds are much faster; the figure above is a clean
 > build.  For comparison, a typical Go service builds in ~3–10 s and a
@@ -73,7 +73,7 @@ platforms where every idle minute can trigger a cold start.
 | Platform | Cold Start (ms) | Notes |
 |---|---|---|
 | **FASM Engine** (compile + exec) | **2** | Measured on this machine |
-| Node.js (process spawn + exec) | 24 | Measured on this machine |
+| Node.js (process spawn + exec) | 25 | Measured on this machine |
 | Python 3 (process spawn + exec) | 22 | Measured on this machine |
 | AWS Lambda — Rust (provided.al2023) *†* | 17 | Published: lambda-perf.io |
 | AWS Lambda — Python 3.12 *†* | 100 | Published: lambda-perf.io |
@@ -91,8 +91,8 @@ platforms where every idle minute can trigger a cold start.
 
 | Runtime / Platform | Typical Size | Notes |
 |---|---|---|
-| **fasm-engine binary** | 6051 KB | Statically linked Rust |
-| **fasm CLI binary** | 1211 KB | Statically linked Rust |
+| **fasm-engine binary** | 4671 KB | Statically linked Rust |
+| **fasm CLI binary** | 1077 KB | Statically linked Rust |
 | Native Rust axum *†* | ~4,000 KB | Typical statically linked binary |
 | Node.js (hello-world app) *†* | ~50,000 KB | node_modules + JS source |
 | Python (FastAPI app) *†* | ~60,000 KB | venv + .py files |
@@ -115,9 +115,9 @@ All FASM numbers are end-to-end: TCP → axum → FASM dispatcher → VM → TCP
 
 | Platform | c=1 (req/s) | c=8 (req/s) | c=32 (req/s) | Notes |
 |---|---|---|---|---|
-| **FASM Engine** | 4336.29 | 9134.76 | 9232.42 | Measured |
-| Node.js http.server | 3436.31 | 6823.33 | 7730.96 | Measured |
-| Python http.server | 2836.44 | 2914.45 | 2900.70 | Measured |
+| **FASM Engine** | 4325.52 | 8427.01 | 9746.97 | Measured |
+| Node.js http.server | 3242.71 | 6826.50 | 8304.82 | Measured |
+| Python http.server | 2763.71 | 2802.36 | 2792.50 | Measured |
 | Native Rust axum *†* | 48,700 | ~80,000 | ~120,000 | Sharkbench 2024 |
 | Node.js Express *†* | 5,700 | ~14,000 | ~20,000 | Sharkbench 2025 |
 | Python FastAPI *†* | 1,200 | ~8,000 | ~15,000 | Sharkbench 2024 |
@@ -128,7 +128,7 @@ All FASM numbers are end-to-end: TCP → axum → FASM dispatcher → VM → TCP
 
 | Platform | c=1 (req/s) | c=8 (req/s) | Notes |
 |---|---|---|---|
-| **FASM Engine** | 3949.76 | 8764.40 | Measured |
+| **FASM Engine** | 4210.31 | 8281.85 | Measured |
 
 ---
 
@@ -148,7 +148,7 @@ ApacheBench percentiles in milliseconds.
 
 | Platform | Idle RSS | Under load | Notes |
 |---|---|---|---|
-| **FASM Engine** | 5 MB | 6 MB | Measured (after 500 req) |
+| **FASM Engine** | 5 MB | 5 MB | Measured (after 500 req) |
 | Native Rust axum *†* | ~8 MB | ~8 MB | Sharkbench 2024 |
 | Node.js Express *†* | ~83 MB | ~100 MB | Sharkbench 2025 |
 | Python FastAPI *†* | ~45 MB | ~60 MB | Sharkbench 2024 |
@@ -165,7 +165,7 @@ ApacheBench percentiles in milliseconds.
 1. **Minimal cold start** — FASM Engine can pre-compile FASM→bytecode at
    deploy time and load it from disk on restart.  Warm-path invocations avoid
    compilation entirely, giving sub-millisecond VM startup.
-2. **Small binary footprint** — single statically-linked binary (6051 KB)
+2. **Small binary footprint** — single statically-linked binary (4671 KB)
    with zero runtime dependencies; fits in a scratch Docker image.
 3. **Built-in isolation** — each function runs in a sandboxed VM with its own
    value stack, with optional seccomp/landlock on Linux.  This eliminates the
@@ -222,7 +222,7 @@ after each significant change to verify no regression.
 | Cold start (warm bytecode) | < 100 ms | < 20 ms | 2 ms | ✅ PASS |
 | p50 latency (c=8) | < 20 ms | < 5 ms | 1 ms | ✅ |
 | p99 latency (c=8) | < 200 ms | < 50 ms | 1 ms | ✅ PASS |
-| Throughput (c=8) | ≥ 500 req/s | ≥ 2,000 req/s | 9134.76 req/s | ✅ PASS |
+| Throughput (c=8) | ≥ 500 req/s | ≥ 2,000 req/s | 8427.01 req/s | ✅ PASS |
 | Idle RSS | < 128 MB | < 32 MB | 5 MB | ✅ PASS |
 | Error rate | = 0% | = 0% | 0% | ✅ |
 
