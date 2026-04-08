@@ -1,0 +1,33 @@
+// fib_bridge.fasm
+// Measures the cost of offloading Fibonacci(30) to a Python sidecar
+
+FUNC Main
+    LOCAL 0, INT32, iter
+    LOCAL 1, INT32, constant_1
+    LOCAL 2, BOOL,  cmp
+    LOCAL 3, INT32, n
+    LOCAL 4, INT32, zero
+    LOCAL 5, INT32, result
+    
+    // We'll run fewer iterations for the bridge because it's slower than pure VM math
+    // but the user wants to compare against the 50,000 baseline.
+    STORE 50000, iter
+    STORE 1, constant_1
+    STORE 30, n
+    STORE 0, zero
+    
+    LABEL Loop
+    
+    // Call the Python Sidecar
+    SYSCALL 99, n
+    MOV $ret, result
+    
+    // Loop control
+    SUB iter, constant_1, iter
+    EQ iter, zero, cmp
+    JNZ cmp, Done
+    JMP Loop
+    
+    LABEL Done
+    RET
+ENDF
