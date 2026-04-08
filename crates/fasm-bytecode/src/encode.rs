@@ -392,3 +392,281 @@ impl<'a> Cursor<'a> {
         String::from_utf8(bytes.to_vec()).map_err(|e| e.to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        instruction::{BuiltIn, Immediate, Operand, SlotRef},
+        types::FasmType,
+        FunctionDef, Instruction, Opcode, ParamDescriptor, Program,
+    };
+
+    fn round_trip(prog: &Program) -> Program {
+        let bytes = encode_program(prog);
+        decode_program(&bytes).expect("decode must succeed")
+    }
+
+    fn simple_program(instrs: Vec<Instruction>) -> Program {
+        let mut prog = Program::new();
+        prog.functions.push(FunctionDef {
+            name: "Main".into(),
+            params: vec![],
+            instructions: instrs,
+        });
+        prog
+    }
+
+    // ── Magic / version ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_magic_bytes_prefix() {
+        let prog = simple_program(vec![Instruction::no_args(Opcode::Halt)]);
+        let bytes = encode_program(&prog);
+        assert_eq!(&bytes[..4], MAGIC);
+        assert_eq!(bytes[4], 0x01, "version must be 0x01");
+    }
+
+    #[test]
+    fn test_bad_magic_returns_error() {
+        let mut bytes = encode_program(&simple_program(vec![]));
+        bytes[0] = 0x00; // corrupt magic
+        assert!(decode_program(&bytes).is_err());
+    }
+
+    #[test]
+    fn test_truncated_input_returns_error() {
+        assert!(decode_program(&[]).is_err());
+        assert!(decode_program(b"FSMC").is_err());
+    }
+
+    // ── Empty program round-trip ──────────────────────────────────────────────
+
+    #[test]
+    fn test_empty_program_round_trip() {
+        let prog = simple_program(vec![]);
+        let rt = round_trip(&prog);
+        assert_eq!(rt.version, 0x01);
+        assert_eq!(rt.functions.len(), 1);
+        assert_eq!(rt.functions[0].name, "Main");
+        assert!(rt.functions[0].instructions.is_empty());
+    }
+
+    // ── Slot operand variants ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_slot_local_round_trip() {
+        let instr = Instruction::new(Opcode::Mov, vec![Operand::Slot(SlotRef::Local(7))]);
+        let rt = round_trip(&simple_program(vec![instr]));
+        assert_eq!(
+            rt.functions[0].instructions[0].operands[0],
+            Operand::Slot(SlotRef::Local(7))
+        );
+    }
+
+    #[test]
+    fn test_slot_global_round_trip() {
+        let instr = Instruction::new(Opcode::Mov, vec![Operand::Slot(SlotRef::Global(300))]);
+        let rt = round_trip(&simple_program(vec![instr]));
+        assert_eq!(
+            rt.functions[0].instructions[0].operands[0],
+            Operand::Slot(SlotRef::Global(300))
+        );
+    }
+
+    #[test]
+    fn test_slot_tmp_round_trip() {
+        let instr = Instruction::new(Opcode::Mov, vec![Operand::Slot(SlotRef::Tmp(3))]);
+        let rt = round_trip(&simple_program(vec![instr]));
+        assert_eq!(
+            rt.functions[0].instructions[0].operands[0],
+            Operand::Slot(SlotRef::Tmp(3))
+        );
+    }
+
+    #[test]
+    fn test_deref_slots_round_trip() {
+        for op in [
+            Operand::Slot(SlotRef::DerefLocal(1)),
+            Operand::Slot(SlotRef::DerefGlobal(500)),
+            Operand::Slot(SlotRef::DerefTmp(2)),
+        ] {
+            let instr = Instruction::new(Opcode::Mov, vec![op.clone()]);
+            let rt = round_trip(&simple_program(vec![instr]));
+            assert_eq!(rt.functions[0].instructions[0].operands[0], op);
+        }
+    }
+
+    #[test]
+    fn test_builtin_slots_round_trip() {
+        for builtin in [
+            BuiltIn::Args,
+            BuiltIn::Ret,
+            BuiltIn::FaultIndex,
+            BuiltIn::FaultCode,
+        ] {
+            let op = Operand::Slot(SlotRef::BuiltIn(builtin));
+            let instr = Instruction::new(Opcode::Mov, vec![op.clone()]);
+            let rt = round_trip(&simple_program(vec![instr]));
+            assert_eq!(rt.functions[0].instructions[0].operands[0], op);
+        }
+    }
+
+    // ── Immediate variants ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_immediate_bool_round_trip() {
+        for v in [true, false] {
+            let op = Operand::Imm(Immediate::Bool(v));
+            let instr = Instruction::new(Opcode::Store, vec![op.clone()]);
+            let rt = round_trip(&simple_program(vec![instr]));
+            assert_eq!(rt.functions[0].instructions[0].operands[0], op);
+        }
+    }
+
+    #[test]
+    fn test_immediate_integers_round_trip() {
+        let ops: Vec<Operand> = vec![
+            Operand::Imm(Immediate::Int8(-42)),
+            Operand::Imm(Immediate::Int16(-1000)),
+            Operand::Imm(Immediate::Int32(-100_000)),
+            Operand::Imm(Immediate::Int64(-1_000_000_000_000)),
+            Operand::Imm(Immediate::Uint8(255)),
+            Operand::Imm(Immediate::Uint16(65535)),
+            Operand::Imm(Immediate::Uint32(0xDEAD_BEEF)),
+            Operand::Imm(Immediate::Uint64(u64::MAX)),
+        ];
+        for op in ops {
+            let instr = Instruction::new(Opcode::Store, vec![op.clone()]);
+            let rt = round_trip(&simple_program(vec![instr]));
+            assert_eq!(rt.functions[0].instructions[0].operands[0], op);
+        }
+    }
+
+    #[test]
+    fn test_immediate_floats_round_trip() {
+        let op32 = Operand::Imm(Immediate::Float32(1.5_f32));
+        let op64 = Operand::Imm(Immediate::Float64(1.5_f64));
+        for op in [op32, op64] {
+            let instr = Instruction::new(Opcode::Store, vec![op.clone()]);
+            let rt = round_trip(&simple_program(vec![instr]));
+            assert_eq!(rt.functions[0].instructions[0].operands[0], op);
+        }
+    }
+
+    #[test]
+    fn test_immediate_null_round_trip() {
+        let op = Operand::Imm(Immediate::Null);
+        let instr = Instruction::new(Opcode::Store, vec![op.clone()]);
+        let rt = round_trip(&simple_program(vec![instr]));
+        assert_eq!(rt.functions[0].instructions[0].operands[0], op);
+    }
+
+    #[test]
+    fn test_immediate_str_round_trip() {
+        let op = Operand::Imm(Immediate::Str("hello, world!".into()));
+        let instr = Instruction::new(Opcode::Store, vec![op.clone()]);
+        let rt = round_trip(&simple_program(vec![instr]));
+        assert_eq!(rt.functions[0].instructions[0].operands[0], op);
+    }
+
+    // ── Other operand kinds ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_funcref_label_syscallid_round_trip() {
+        let ops = vec![
+            Operand::FuncRef(42),
+            Operand::LabelTarget(1024),
+            Operand::SyscallId(-3),
+            Operand::Type(FasmType::Int32),
+            Operand::Key(99),
+            Operand::Required(true),
+            Operand::Required(false),
+        ];
+        for op in ops {
+            let instr = Instruction::new(Opcode::Nop, vec![op.clone()]);
+            let rt = round_trip(&simple_program(vec![instr]));
+            assert_eq!(rt.functions[0].instructions[0].operands[0], op);
+        }
+    }
+
+    // ── Global inits ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_global_inits_round_trip() {
+        let mut prog = simple_program(vec![]);
+        prog.global_inits.push(Instruction::new(
+            Opcode::Reserve,
+            vec![
+                Operand::Key(0),
+                Operand::Type(FasmType::Int32),
+                Operand::Imm(Immediate::Null),
+            ],
+        ));
+        let rt = round_trip(&prog);
+        assert_eq!(rt.global_inits.len(), 1);
+        assert_eq!(rt.global_inits[0].opcode, Opcode::Reserve);
+    }
+
+    // ── Function with params ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_function_params_round_trip() {
+        let mut prog = Program::new();
+        prog.functions.push(FunctionDef {
+            name: "Handler".into(),
+            params: vec![
+                ParamDescriptor {
+                    key: 0,
+                    fasm_type: FasmType::Int32,
+                    name: "x".into(),
+                    required: true,
+                },
+                ParamDescriptor {
+                    key: 1,
+                    fasm_type: FasmType::Bool,
+                    name: "flag".into(),
+                    required: false,
+                },
+            ],
+            instructions: vec![Instruction::no_args(Opcode::Halt)],
+        });
+        prog.functions.push(FunctionDef {
+            name: "Main".into(),
+            params: vec![],
+            instructions: vec![],
+        });
+        let rt = round_trip(&prog);
+        let handler = &rt.functions[0];
+        assert_eq!(handler.name, "Handler");
+        assert_eq!(handler.params.len(), 2);
+        assert_eq!(handler.params[0].key, 0);
+        assert_eq!(handler.params[0].fasm_type, FasmType::Int32);
+        assert_eq!(handler.params[0].name, "x");
+        assert!(handler.params[0].required);
+        assert!(!handler.params[1].required);
+    }
+
+    // ── Unknown operand tag ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_unknown_operand_tag_returns_error() {
+        // Build a minimal valid header + one function with one instruction
+        // that has an unknown operand tag (0xEE).
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(MAGIC);
+        bytes.push(0x01); // version
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // 0 global inits
+        bytes.extend_from_slice(&1u32.to_le_bytes()); // 1 function
+                                                      // function name "Main"
+        let name = b"Main";
+        bytes.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        bytes.extend_from_slice(name);
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // 0 params
+        bytes.extend_from_slice(&1u32.to_le_bytes()); // 1 instruction
+        bytes.push(0x00); // opcode = Nop
+        bytes.push(0x01); // 1 operand
+        bytes.push(0xEE); // unknown tag
+        assert!(decode_program(&bytes).is_err());
+    }
+}

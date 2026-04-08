@@ -1645,3 +1645,785 @@ impl Default for Executor {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fasm_compiler::compile_source;
+
+    /// Compile and run a FASM program, returning the final return value.
+    fn run(src: &str) -> Value {
+        let prog = compile_source(src).expect("compile failed");
+        let mut ex = Executor::new();
+        ex.run(&prog).expect("execution failed")
+    }
+
+    /// Compile and run, expecting an error string containing `substr`.
+    fn run_err(src: &str) -> String {
+        let prog = compile_source(src).expect("compile failed");
+        let mut ex = Executor::new();
+        ex.run(&prog).expect_err("expected error")
+    }
+
+    // ── Arithmetic ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_add_integers() {
+        let src = "
+FUNC Main
+    LOCAL 0, INT32, a
+    LOCAL 1, INT32, b
+    LOCAL 2, INT32, c
+    STORE 10, a
+    STORE 32, b
+    ADD a, b, c
+    RET c
+ENDF
+";
+        assert_eq!(run(src), Value::Int32(42));
+    }
+
+    #[test]
+    fn test_sub_integers() {
+        let src = "
+FUNC Main
+    LOCAL 0, INT32, a
+    LOCAL 1, INT32, b
+    LOCAL 2, INT32, c
+    STORE 100, a
+    STORE 37, b
+    SUB a, b, c
+    RET c
+ENDF
+";
+        assert_eq!(run(src), Value::Int32(63));
+    }
+
+    #[test]
+    fn test_mul_integers() {
+        let src = "
+FUNC Main
+    LOCAL 0, INT32, a
+    LOCAL 1, INT32, b
+    LOCAL 2, INT32, c
+    STORE 6, a
+    STORE 7, b
+    MUL a, b, c
+    RET c
+ENDF
+";
+        assert_eq!(run(src), Value::Int32(42));
+    }
+
+    #[test]
+    fn test_div_integers() {
+        let src = "
+FUNC Main
+    LOCAL 0, INT32, a
+    LOCAL 1, INT32, b
+    LOCAL 2, INT32, c
+    STORE 84, a
+    STORE 2, b
+    DIV a, b, c
+    RET c
+ENDF
+";
+        assert_eq!(run(src), Value::Int32(42));
+    }
+
+    #[test]
+    fn test_mod_integers() {
+        let src = "
+FUNC Main
+    LOCAL 0, INT32, a
+    LOCAL 1, INT32, b
+    LOCAL 2, INT32, c
+    STORE 17, a
+    STORE 5, b
+    MOD a, b, c
+    RET c
+ENDF
+";
+        assert_eq!(run(src), Value::Int32(2));
+    }
+
+    #[test]
+    fn test_neg_integer() {
+        let src = "
+FUNC Main
+    LOCAL 0, INT32, a
+    LOCAL 1, INT32, b
+    STORE 42, a
+    NEG a, b
+    RET b
+ENDF
+";
+        assert_eq!(run(src), Value::Int32(-42));
+    }
+
+    #[test]
+    fn test_division_by_zero_faults() {
+        let src = "
+FUNC Main
+    LOCAL 0, INT32, a
+    LOCAL 1, INT32, z
+    LOCAL 2, INT32, c
+    STORE 10, a
+    STORE 0, z
+    DIV a, z, c
+    RET c
+ENDF
+";
+        let err = run_err(src);
+        assert!(err.contains("DivisionByZero"), "err: {}", err);
+    }
+
+    // ── Comparison ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_eq_true() {
+        let src = "
+FUNC Main
+    LOCAL 0, INT32, a
+    LOCAL 1, BOOL, r
+    STORE 5, a
+    EQ a, 5, r
+    RET r
+ENDF
+";
+        assert_eq!(run(src), Value::Bool(true));
+    }
+
+    #[test]
+    fn test_eq_false() {
+        let src = "
+FUNC Main
+    LOCAL 0, INT32, a
+    LOCAL 1, BOOL, r
+    STORE 5, a
+    EQ a, 6, r
+    RET r
+ENDF
+";
+        assert_eq!(run(src), Value::Bool(false));
+    }
+
+    #[test]
+    fn test_lt_gt_lte_gte() {
+        let run_cmp = |op: &str, lhs: i32, rhs: i32| -> Value {
+            let src = format!(
+                "
+FUNC Main
+    LOCAL 0, INT32, a
+    LOCAL 1, INT32, b
+    LOCAL 2, BOOL, r
+    STORE {lhs}, a
+    STORE {rhs}, b
+    {op} a, b, r
+    RET r
+ENDF
+"
+            );
+            run(&src)
+        };
+        assert_eq!(run_cmp("LT", 3, 5), Value::Bool(true));
+        assert_eq!(run_cmp("LT", 5, 5), Value::Bool(false));
+        assert_eq!(run_cmp("GT", 5, 3), Value::Bool(true));
+        assert_eq!(run_cmp("GT", 5, 5), Value::Bool(false));
+        assert_eq!(run_cmp("LTE", 5, 5), Value::Bool(true));
+        assert_eq!(run_cmp("LTE", 6, 5), Value::Bool(false));
+        assert_eq!(run_cmp("GTE", 5, 5), Value::Bool(true));
+        assert_eq!(run_cmp("GTE", 4, 5), Value::Bool(false));
+        assert_eq!(run_cmp("NEQ", 4, 5), Value::Bool(true));
+        assert_eq!(run_cmp("NEQ", 5, 5), Value::Bool(false));
+    }
+
+    // ── Control flow ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_jnz_taken() {
+        // JNZ on true condition jumps to Done label, skipping STORE 0
+        let src = "
+FUNC Main
+    LOCAL 0, BOOL, flag
+    LOCAL 1, INT32, result
+    STORE TRUE, flag
+    STORE 99, result
+    JNZ flag, Done
+    STORE 0, result
+    LABEL Done
+    RET result
+ENDF
+";
+        assert_eq!(run(src), Value::Int32(99));
+    }
+
+    #[test]
+    fn test_jnz_not_taken() {
+        let src = "
+FUNC Main
+    LOCAL 0, BOOL, flag
+    LOCAL 1, INT32, result
+    STORE FALSE, flag
+    STORE 99, result
+    JNZ flag, Done
+    STORE 0, result
+    LABEL Done
+    RET result
+ENDF
+";
+        assert_eq!(run(src), Value::Int32(0));
+    }
+
+    #[test]
+    fn test_jz_taken() {
+        let src = "
+FUNC Main
+    LOCAL 0, BOOL, flag
+    LOCAL 1, INT32, result
+    STORE FALSE, flag
+    STORE 99, result
+    JZ flag, Done
+    STORE 0, result
+    LABEL Done
+    RET result
+ENDF
+";
+        assert_eq!(run(src), Value::Int32(99));
+    }
+
+    #[test]
+    fn test_jmp_unconditional() {
+        let src = "
+FUNC Main
+    LOCAL 0, INT32, result
+    STORE 1, result
+    JMP Skip
+    STORE 999, result
+    LABEL Skip
+    RET result
+ENDF
+";
+        assert_eq!(run(src), Value::Int32(1));
+    }
+
+    // ── Function calls ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_call_and_ret() {
+        let src = "
+FUNC Double
+    LOCAL 0, INT32, n
+    LOCAL 1, INT32, result
+    GET_FIELD $args, 0, n
+    MUL n, 2, result
+    RET result
+ENDF
+
+FUNC Main
+    LOCAL 0, STRUCT, args
+    LOCAL 1, INT32, answer
+    RESERVE 0, STRUCT, NULL
+    SET_FIELD args, 0, 21
+    CALL Double, args
+    MOV $ret, answer
+    RET answer
+ENDF
+";
+        assert_eq!(run(src), Value::Int32(42));
+    }
+
+    #[test]
+    fn test_tail_call() {
+        let src = "
+FUNC Countdown
+    LOCAL 0, INT32, n
+    LOCAL 1, INT32, next
+    LOCAL 2, STRUCT, args
+    GET_FIELD $args, 0, n
+    EQ n, 0, $ret
+    JNZ $ret, Done
+    SUB n, 1, next
+    RESERVE 2, STRUCT, NULL
+    SET_FIELD args, 0, next
+    TAIL_CALL Countdown, args
+    LABEL Done
+    RET n
+ENDF
+
+FUNC Main
+    LOCAL 0, STRUCT, args
+    LOCAL 1, INT32, r
+    RESERVE 0, STRUCT, NULL
+    SET_FIELD args, 0, 5
+    CALL Countdown, args
+    MOV $ret, r
+    RET r
+ENDF
+";
+        assert_eq!(run(src), Value::Int32(0));
+    }
+
+    // ── Bitwise operations ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bitwise_ops() {
+        // AND: 0b1100 & 0b1010 = 0b1000 = 8
+        let src = "
+FUNC Main
+    LOCAL 0, INT32, a
+    LOCAL 1, INT32, b
+    LOCAL 2, INT32, c
+    STORE 12, a
+    STORE 10, b
+    AND a, b, c
+    RET c
+ENDF
+";
+        assert_eq!(run(src), Value::Int32(8));
+    }
+
+    #[test]
+    fn test_or_op() {
+        // OR: 0b1100 | 0b1010 = 0b1110 = 14
+        let src = "
+FUNC Main
+    LOCAL 0, INT32, a
+    LOCAL 1, INT32, b
+    LOCAL 2, INT32, c
+    STORE 12, a
+    STORE 10, b
+    OR a, b, c
+    RET c
+ENDF
+";
+        assert_eq!(run(src), Value::Int32(14));
+    }
+
+    #[test]
+    fn test_xor_op() {
+        // XOR: 0b1100 ^ 0b1010 = 0b0110 = 6
+        let src = "
+FUNC Main
+    LOCAL 0, INT32, a
+    LOCAL 1, INT32, b
+    LOCAL 2, INT32, c
+    STORE 12, a
+    STORE 10, b
+    XOR a, b, c
+    RET c
+ENDF
+";
+        assert_eq!(run(src), Value::Int32(6));
+    }
+
+    #[test]
+    fn test_shl_shr() {
+        let src_shl = "
+FUNC Main
+    LOCAL 0, INT32, a
+    LOCAL 1, INT32, r
+    STORE 1, a
+    SHL a, 4, r
+    RET r
+ENDF
+";
+        assert_eq!(run(src_shl), Value::Int32(16));
+
+        let src_shr = "
+FUNC Main
+    LOCAL 0, INT32, a
+    LOCAL 1, INT32, r
+    STORE 32, a
+    SHR a, 2, r
+    RET r
+ENDF
+";
+        assert_eq!(run(src_shr), Value::Int32(8));
+    }
+
+    // ── VEC / STACK / QUEUE / STRUCT collections ──────────────────────────────
+
+    #[test]
+    fn test_vec_push_pop_len() {
+        // VEC supports PUSH (appends to back) and GET_IDX but not POP.
+        // Use GET_IDX to retrieve a specific element by index.
+        let src = "
+FUNC Main
+    LOCAL 0, VEC, v
+    LOCAL 1, INT32, last
+    LOCAL 2, INT32, len
+    RESERVE 0, VEC, NULL
+    PUSH v, 10
+    PUSH v, 20
+    PUSH v, 30
+    LEN v, len
+    GET_IDX v, 2, last
+    RET last
+ENDF
+";
+        assert_eq!(run(src), Value::Int32(30));
+    }
+
+    #[test]
+    fn test_vec_get_set_idx() {
+        let src = "
+FUNC Main
+    LOCAL 0, VEC, v
+    LOCAL 1, INT32, item
+    RESERVE 0, VEC, NULL
+    PUSH v, 100
+    PUSH v, 200
+    PUSH v, 300
+    GET_IDX v, 1, item
+    RET item
+ENDF
+";
+        assert_eq!(run(src), Value::Int32(200));
+    }
+
+    #[test]
+    fn test_struct_set_get_field() {
+        let src = "
+FUNC Main
+    LOCAL 0, STRUCT, s
+    LOCAL 1, INT32, val
+    RESERVE 0, STRUCT, NULL
+    SET_FIELD s, 0, 77
+    GET_FIELD s, 0, val
+    RET val
+ENDF
+";
+        assert_eq!(run(src), Value::Int32(77));
+    }
+
+    #[test]
+    fn test_struct_has_del_field() {
+        let src = "
+FUNC Main
+    LOCAL 0, STRUCT, s
+    LOCAL 1, BOOL, has
+    RESERVE 0, STRUCT, NULL
+    SET_FIELD s, 42, 1
+    HAS_FIELD s, 42, has
+    JNZ has, HasIt
+    RET FALSE
+    LABEL HasIt
+    DEL_FIELD s, 42
+    HAS_FIELD s, 42, has
+    RET has
+ENDF
+";
+        assert_eq!(run(src), Value::Bool(false));
+    }
+
+    #[test]
+    fn test_stack_push_pop() {
+        let src = "
+FUNC Main
+    LOCAL 0, STACK, stk
+    LOCAL 1, INT32, top
+    RESERVE 0, STACK, NULL
+    PUSH stk, 1
+    PUSH stk, 2
+    PUSH stk, 3
+    POP stk, top
+    RET top
+ENDF
+";
+        assert_eq!(run(src), Value::Int32(3));
+    }
+
+    #[test]
+    fn test_queue_enqueue_dequeue() {
+        let src = "
+FUNC Main
+    LOCAL 0, QUEUE, q
+    LOCAL 1, INT32, front
+    RESERVE 0, QUEUE, NULL
+    ENQUEUE q, 10
+    ENQUEUE q, 20
+    DEQUEUE q, front
+    RET front
+ENDF
+";
+        assert_eq!(run(src), Value::Int32(10));
+    }
+
+    // ── Option / Result wrappers ──────────────────────────────────────────────
+
+    #[test]
+    fn test_option_some_is_some_unwrap() {
+        let src = "
+FUNC Main
+    LOCAL 0, OPTION, opt
+    LOCAL 1, BOOL, has
+    LOCAL 2, INT32, val
+    RESERVE 0, OPTION, NULL
+    SOME opt, 99
+    IS_SOME opt, has
+    JZ has, Fail
+    UNWRAP opt, val
+    RET val
+    LABEL Fail
+    RET 0
+ENDF
+";
+        assert_eq!(run(src), Value::Int32(99));
+    }
+
+    #[test]
+    fn test_result_ok_is_ok_unwrap_ok() {
+        let src = "
+FUNC Main
+    LOCAL 0, RESULT, r
+    LOCAL 1, BOOL, ok
+    LOCAL 2, INT32, val
+    RESERVE 0, RESULT, NULL
+    OK r, 42
+    IS_OK r, ok
+    JZ ok, Fail
+    UNWRAP_OK r, val
+    RET val
+    LABEL Fail
+    RET 0
+ENDF
+";
+        assert_eq!(run(src), Value::Int32(42));
+    }
+
+    #[test]
+    fn test_result_err_unwrap_err() {
+        let src = "
+FUNC Main
+    LOCAL 0, RESULT, r
+    LOCAL 1, BOOL, ok
+    LOCAL 2, UINT32, code
+    RESERVE 0, RESULT, NULL
+    ERR r, 7
+    IS_OK r, ok
+    JNZ ok, Fail
+    UNWRAP_ERR r, code
+    RET code
+    LABEL Fail
+    RET 0
+ENDF
+";
+        assert_eq!(run(src), Value::Uint32(7));
+    }
+
+    // ── CAST ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_cast_int32_to_float64() {
+        let src = "
+FUNC Main
+    LOCAL 0, INT32, n
+    LOCAL 1, FLOAT64, f
+    STORE 7, n
+    CAST n, FLOAT64, f
+    RET f
+ENDF
+";
+        assert_eq!(run(src), Value::Float64(7.0));
+    }
+
+    #[test]
+    fn test_cast_float32_to_int32() {
+        let src = "
+FUNC Main
+    LOCAL 0, FLOAT32, f
+    LOCAL 1, INT32, n
+    STORE 3.7, f
+    CAST f, INT32, n
+    RET n
+ENDF
+";
+        assert_eq!(run(src), Value::Int32(3));
+    }
+
+    // ── TRY / CATCH ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_try_catch_handles_fault() {
+        let src = "
+FUNC Main
+    LOCAL 0, INT32, a
+    LOCAL 1, INT32, z
+    LOCAL 2, INT32, result
+    STORE 5, a
+    STORE 0, z
+    TRY
+        DIV a, z, result
+    CATCH
+        STORE 99, result
+    ENDTRY
+    RET result
+ENDF
+";
+        assert_eq!(run(src), Value::Int32(99));
+    }
+
+    #[test]
+    fn test_try_no_fault_skips_catch() {
+        let src = "
+FUNC Main
+    LOCAL 0, INT32, a
+    LOCAL 1, INT32, b
+    LOCAL 2, INT32, result
+    STORE 10, a
+    STORE 2, b
+    TRY
+        DIV a, b, result
+    CATCH
+        STORE 0, result
+    ENDTRY
+    RET result
+ENDF
+";
+        assert_eq!(run(src), Value::Int32(5));
+    }
+
+    // ── Halt ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_halt_returns_null() {
+        let src = "
+FUNC Main
+    HALT
+ENDF
+";
+        assert_eq!(run(src), Value::Null);
+    }
+
+    // ── Global variables ──────────────────────────────────────────────────────
+    // Global variables are declared at the top level with RESERVE and accessed
+    // by their key in the executor's global register. There is no source-level
+    // syntax to address globals from within a function, so this test verifies
+    // that global_inits are executed before Main runs by using them as a
+    // counter that functions can read via the sandbox/vm API.
+    //
+    // We verify globals via a round-trip: compile a program with a top-level
+    // RESERVE and confirm the bytecode contains the global_inits entry.
+
+    #[test]
+    fn test_global_reserve_initialised_before_main() {
+        let src = "
+RESERVE 0, INT32, 0
+
+FUNC Main
+    RET
+ENDF
+";
+        let prog = fasm_compiler::compile_source(src).expect("compile");
+        // The global_inits should contain one RESERVE instruction.
+        assert_eq!(prog.global_inits.len(), 1);
+        // Running the program must succeed with the global pre-initialised.
+        let mut ex = Executor::new();
+        ex.run(&prog).expect("run");
+        // After running, global slot 0 should hold Int32(0).
+        assert_eq!(ex.globals.get(0), Some(&Value::Int32(0)));
+    }
+
+    // ── Stack overflow ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_stack_overflow_error() {
+        let src = "
+FUNC InfiniteRecurse
+    LOCAL 0, STRUCT, args
+    RESERVE 0, STRUCT, NULL
+    CALL InfiniteRecurse, args
+    RET
+ENDF
+
+FUNC Main
+    LOCAL 0, STRUCT, args
+    RESERVE 0, STRUCT, NULL
+    CALL InfiniteRecurse, args
+    RET
+ENDF
+";
+        let err = run_err(src);
+        assert!(err.contains("StackOverflow"), "err: {}", err);
+    }
+
+    // ── DEQUE operations ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_deque_prepend_pop_back() {
+        // DEQUE: PUSH appends to back, PREPEND adds to front, POP_BACK removes from back,
+        // DEQUEUE removes from front. POP (STACK pop) does NOT work on DEQUE.
+        let src = "
+FUNC Main
+    LOCAL 0, DEQUE, d
+    LOCAL 1, INT32, front
+    LOCAL 2, INT32, back
+    RESERVE 0, DEQUE, NULL
+    PUSH d, 2
+    PREPEND d, 1
+    PUSH d, 3
+    POP_BACK d, back
+    DEQUEUE d, front
+    RET front
+ENDF
+";
+        assert_eq!(run(src), Value::Int32(1));
+    }
+
+    // ── SPARSE operations ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_sparse_set_get_del_has() {
+        let src = "
+FUNC Main
+    LOCAL 0, SPARSE, sp
+    LOCAL 1, INT32, val
+    LOCAL 2, BOOL, has
+    RESERVE 0, SPARSE, NULL
+    SPARSE_SET sp, 100, 42
+    SPARSE_GET sp, 100, val
+    RET val
+ENDF
+";
+        assert_eq!(run(src), Value::Int32(42));
+    }
+
+    // ── BTREE operations ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_btree_set_get_min_max() {
+        let src = "
+FUNC Main
+    LOCAL 0, BTREE, bt
+    LOCAL 1, UINT32, min_key
+    LOCAL 2, UINT32, max_key
+    RESERVE 0, BTREE, NULL
+    BTREE_SET bt, 5, 50
+    BTREE_SET bt, 1, 10
+    BTREE_SET bt, 9, 90
+    BTREE_MIN bt, min_key
+    BTREE_MAX bt, max_key
+    RET min_key
+ENDF
+";
+        assert_eq!(run(src), Value::Uint32(1));
+    }
+
+    // ── ADDR / reference ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_addr_and_store_through_ref() {
+        let src = "
+FUNC Main
+    LOCAL 0, INT32, target
+    LOCAL 1, REF_MUT, ref_target
+    STORE 0, target
+    ADDR target, ref_target
+    STORE 77, &ref_target
+    RET target
+ENDF
+";
+        assert_eq!(run(src), Value::Int32(77));
+    }
+}

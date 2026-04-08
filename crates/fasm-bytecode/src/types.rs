@@ -72,3 +72,59 @@ impl TryFrom<u8> for FasmType {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_known_types_round_trip() {
+        let known: &[(u8, FasmType)] = &[
+            (0x01, FasmType::Bool),
+            (0x02, FasmType::Int8),
+            (0x03, FasmType::Int16),
+            (0x04, FasmType::Int32),
+            (0x05, FasmType::Int64),
+            (0x06, FasmType::Uint8),
+            (0x07, FasmType::Uint16),
+            (0x08, FasmType::Uint32),
+            (0x09, FasmType::Uint64),
+            (0x0A, FasmType::Float32),
+            (0x0B, FasmType::Float64),
+            (0x10, FasmType::RefMut),
+            (0x11, FasmType::RefImm),
+            (0x20, FasmType::Vec),
+            (0x21, FasmType::Struct),
+            (0x22, FasmType::Stack),
+            (0x23, FasmType::Queue),
+            (0x24, FasmType::HeapMin),
+            (0x25, FasmType::HeapMax),
+            (0x26, FasmType::Sparse),
+            (0x27, FasmType::BTree),
+            (0x28, FasmType::Slice),
+            (0x29, FasmType::Deque),
+            (0x2A, FasmType::Bitset),
+            (0x2B, FasmType::Bitvec),
+            (0x30, FasmType::Option),
+            (0x31, FasmType::Result),
+            (0x32, FasmType::Future),
+            (0xFF, FasmType::Null),
+        ];
+        for &(byte, expected) in known {
+            let decoded = FasmType::try_from(byte).expect("known type must decode");
+            assert_eq!(decoded, expected, "type 0x{:02X} mismatch", byte);
+            assert_eq!(decoded as u8, byte, "repr byte for {:?} mismatch", expected);
+        }
+    }
+
+    #[test]
+    fn test_unknown_type_returns_error() {
+        for byte in [0x00u8, 0x0C, 0x1F, 0x2C, 0x33, 0xFE] {
+            assert!(
+                FasmType::try_from(byte).is_err(),
+                "byte 0x{:02X} should not decode to a valid FasmType",
+                byte
+            );
+        }
+    }
+}

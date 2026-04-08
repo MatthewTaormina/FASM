@@ -536,6 +536,7 @@ name = "fasm-vm"
 version = "0.1.0"
 dependencies = [
  "fasm-bytecode",
+ "fasm-compiler",
  "rustc-hash",
  "serde",
  "serde_json",
