@@ -47,8 +47,9 @@ fn read_fixture(name: &str) -> String {
 fn make_engine_config(routes: Vec<RouteConfig>) -> EngineConfig {
     EngineConfig {
         server:    ServerConfig  { host: "127.0.0.1".into(), port: 0 },
-        engine:    EngineSettings { max_concurrent: 128, hot_reload: false, clock_hz: 0 },
+        engine:    EngineSettings { max_concurrent: 128, hot_reload: false, clock_hz: 0, enable_seccomp: false, enable_landlock: false, landlock_allowed_read_paths: vec![] },
         plugins:   PluginsConfig { discovery_dir: None },
+        storage:   Default::default(),
         routes,
         schedules: vec![],
         queues:    vec![],

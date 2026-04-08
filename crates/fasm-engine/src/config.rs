@@ -82,6 +82,15 @@ pub struct EngineSettings {
     /// Clock limit per sandbox execution (0 = unlimited).
     #[serde(default)]
     pub clock_hz: u64,
+    /// Enable seccomp-BPF syscall denylist on execution threads (Linux only).
+    #[serde(default)]
+    pub enable_seccomp: bool,
+    /// Enable Landlock filesystem restrictions on execution threads (Linux only).
+    #[serde(default)]
+    pub enable_landlock: bool,
+    /// Filesystem paths the execution thread is allowed to read under Landlock.
+    #[serde(default)]
+    pub landlock_allowed_read_paths: Vec<std::path::PathBuf>,
 }
 
 impl Default for EngineSettings {
@@ -90,6 +99,9 @@ impl Default for EngineSettings {
             max_concurrent: default_max_concurrent(),
             hot_reload: false,
             clock_hz: 0,
+            enable_seccomp: false,
+            enable_landlock: false,
+            landlock_allowed_read_paths: Vec::new(),
         }
     }
 }

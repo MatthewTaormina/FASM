@@ -66,6 +66,9 @@ pub async fn run_with_listener(
         plugin_discovery_dir: config.plugins.discovery_dir
             .as_ref()
             .map(|d| config_dir.join(d)),
+        enable_seccomp: config.engine.enable_seccomp,
+        enable_landlock: config.engine.enable_landlock,
+        landlock_allowed_read_paths: config.engine.landlock_allowed_read_paths.clone(),
     });
 
     let dispatcher = TaskDispatcher::new_with_config(

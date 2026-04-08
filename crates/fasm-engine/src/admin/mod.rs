@@ -1,10 +1,10 @@
 //! Admin API router — mounts all `/api/v1/` endpoints.
 //!
 //! Attach to the main axum `Router` with:
-//! ```rust
+//! ```rust,ignore
 //! let app = Router::new()
 //!     .merge(admin::router())
-//!     ...
+//!     // ...
 //! ```
 
 pub mod auth;

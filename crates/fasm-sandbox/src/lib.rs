@@ -23,6 +23,10 @@ pub mod clock;
 pub mod sidecar;
 pub mod plugin_manifest;
 
+#[cfg(target_os = "linux")]
+pub mod seccomp;
+#[cfg(target_os = "linux")]
+pub mod landlock;
 
 pub use sandbox::{Sandbox, SandboxConfig};
 pub use clock::ClockController;

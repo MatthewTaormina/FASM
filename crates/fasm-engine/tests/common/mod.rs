@@ -32,7 +32,7 @@ impl TestEngine {
     pub async fn start(routes: Vec<RouteConfig>, fixtures_dir: PathBuf, max_concurrent: usize) -> Self {
         let config = EngineConfig {
             server:    ServerConfig  { host: "127.0.0.1".into(), port: 0 },
-            engine:    EngineSettings { max_concurrent, hot_reload: false, clock_hz: 0 },
+            engine:    EngineSettings { max_concurrent, hot_reload: false, clock_hz: 0, enable_seccomp: false, enable_landlock: false, landlock_allowed_read_paths: vec![] },
             plugins:   PluginsConfig { discovery_dir: None },
             storage:   StorageConfig::default(),
             routes,
