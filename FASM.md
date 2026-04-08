@@ -182,6 +182,48 @@ Invokes a system call asynchronously.
 | `3` | `EXIT` | Halts the VM. Struct key `0` = exit code (`INT32`). |
 | `4` | `PARSE_INT` | Parses a `VEC` of `UINT8` ASCII bytes into an `INT32`. Struct key `0` = vec. Returns `RESULT<INT32>` via `$ret`: `OK(n)` on success, `ERR(1)` if input contains non-digit characters. Supports an optional leading `'-'`. Strips trailing whitespace. |
 
+## IPC Sidecar Plugins
+
+FASM is designed as an orchestration layer, enabling heavy computations or complex host API logic to be offloaded to external native sub-processes (Sidecars) via IPC. The VM achieves this safely without adding FFI overhead by streaming zero-copy JSON-RC across Standard I/O securely tied to Syscall endpoints.
+
+### Mounting Sidecars
+External executables (Python, Node.js, C++, Rust binaries) can be hot-mapped to any non-reserved `SYSCALL` ID. When the FASM VM hits that SYSCALL, it:
+1. Translates the target argument native `fasm_vm::Value` into strict JSON format.
+2. Pipes this deeply-mapped semantic schema into the host binary's `STDIN`.
+3. Blocks execution until `STDOUT` flushes a deserializable JSON response.
+4. Coerces it natively back into `Value::*` and pushes it strictly back into `$ret`.
+
+**Binding via CLI:**
+You can mount processes directly to an ID using the `--plugin` flag:
+```bash
+fasm run script.fasm --plugin 99:python:my_plugin.py
+```
+
+### Sidecar Requirements
+Any external program just needs to loop:
+- Reading one line from `STDIN`.
+- Outputting one valid JSON string (representing the `Value` type) onto `STDOUT`.
+
+*Example Python Plugin (`my_plugin.py`)*:
+```python
+import sys, json
+
+while True:
+    line = sys.stdin.readline()
+    if not line: break
+    data = json.loads(line)
+    
+    # Process the {"Int32": value} structure explicitly serialized by FASM
+    if "Int32" in data:
+        val = data["Int32"]
+        res = {"Int32": val * 2}
+    else:
+        res = "Null"
+        
+    sys.stdout.write(json.dumps(res) + "\n")
+    sys.stdout.flush()
+```
+
 ## Control Flow
 
 ### LABEL name

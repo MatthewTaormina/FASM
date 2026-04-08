@@ -169,7 +169,17 @@ ENDF
 | `2` | `READ` | — | `VEC` of `UINT8` (stdin line) |
 | `3` | `EXIT` | `0` → `INT32` exit code | (terminates) |
 
-Custom syscalls can be registered at runtime by the host via `Sandbox::mount_syscall(id, handler)`.
+Custom syscalls can be natively registered at runtime by the host application via `Sandbox::mount_syscall(id, handler)`.
+
+### IPC Sidecar Plugins
+
+FASM is designed as a lightweight orchestration layer, allowing heavy computations or host API logic to be offloaded to external sub-processes (Sidecars) via high-performance IPC. The VM achieves this safely without adding FFI overhead by streaming zero-copy JSON-RPC across Standard I/O securely tied to Syscall endpoints.
+
+You can mount any external executable directly to an ID using the `--plugin` CLI flag:
+```powershell
+.\target\release\fasm.exe run script.fasm --plugin 99:python:plugin.py
+```
+This tells the FASM engine: "Bind Syscall `#99` to the detached execution of `python plugin.py`." FASM automatically handles deep serialization of the internal sandbox memory, enabling seamless bidirectional data bridging between languages.
 
 ---
 
