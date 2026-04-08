@@ -284,19 +284,84 @@ POST /api/v1/.../routes                         │  pack $args struct
 
 ## FASM Handler Convention
 
-Any FASM function can be an HTTP handler. Path parameters are injected as `VEC<UINT8>` fields in `$args`:
+Any FASM function can serve as an HTTP handler. The engine builds a `$args`
+STRUCT from the request and passes it as the sole argument.
+
+### `$args` layout
+
+| Field key | Source | FASM type |
+|-----------|--------|-----------|
+| 0, 1, … | Path parameters (`:id`, `:slug`, …) | `VEC<UINT8>` — UTF-8 bytes |
+| next | Query string values (`?k=v`, one per pair) | `VEC<UINT8>` — percent-decoded |
+| last | Request body | See type table below |
+
+### JSON body → FASM type mapping
+
+When `Content-Type: application/json` the body is fully translated into FASM
+types before the function is called:
+
+| JSON | FASM `Value` | Notes |
+|------|-------------|-------|
+| `{"x":1,"y":2}` | `STRUCT{0→INT32(1), 1→INT32(2)}` | String keys dropped; positional |
+| `[1,"hi",true]` | `VEC[INT32, VEC<UINT8>, BOOL]` | Recursive |
+| `"hello"` | `VEC<UINT8>` | Bare bytes, no quotes |
+| `42` | `INT32` (`INT64` if > 2 147 483 647) | |
+| `3.14` | `FLOAT64` | |
+| `true` / `false` | `BOOL` | |
+| `null` | `NULL` | |
+| `{"$b64":"aGk="}` | `VEC<UINT8>` | Binary round-trip sentinel |
+
+Any other `Content-Type` passes the raw body bytes as `VEC<UINT8>`.
+
+### FASM return value → JSON response
+
+| FASM `Value` | JSON |
+|-------------|------|
+| `VEC<UINT8>` valid UTF-8 | `"string"` |
+| `VEC<UINT8>` binary | `{"$b64":"<base64-std>"}` |
+| `VEC[…]` mixed | `[…]` |
+| `STRUCT{0→v, 1→v}` | `{"0":…, "1":…}` |
+| `INT32` / `INT64` / `FLOAT64` | number |
+| `BOOL` | `true` / `false` |
+| `NULL` | `null` |
+| `OPTION Some(v)` / `None` | value / `null` |
+| `RESULT Ok(v)` | `{"ok": value}` |
+| `RESULT Err(code)` | `{"err": code}` |
+
+### Binary data — `$b64` sentinel
+
+When a `VEC<UINT8>` is not valid UTF-8 the engine serialises it as:
+
+```json
+{ "$b64": "<standard base64>" }
+```
+
+Clients send binary back the same way — the engine recognises the sentinel and
+decodes it to `VEC<UINT8>` before calling the function.
+
+### Examples
 
 ```fasm
-FUNC Echo
-    LOCAL 0, VEC, param_bytes
-    GET_FIELD $args, 0, param_bytes   // first :param value
-    RET param_bytes
+; GET /ping
+FUNC Ping
+    RET "pong"
 ENDF
 
-FUNC GetUser
-    LOCAL 0, VEC,   id_bytes
-    LOCAL 1, INT32, user_id
-    GET_FIELD $args, 0, id_bytes      // :id from /users/:id
-    RET id_bytes
+; GET /echo/:word
+FUNC Echo
+    LOCAL 0, VEC, word
+    GET_FIELD $args, 0, word   ; field 0 = first path param
+    RET word
+ENDF
+
+; POST /add  body: {"a":3,"b":4}
+FUNC Add
+    LOCAL 0, INT32, a
+    LOCAL 1, INT32, b
+    LOCAL 2, INT32, sum
+    GET_FIELD $args, 0, a      ; field 0 = first JSON object value
+    GET_FIELD $args, 1, b      ; field 1 = second JSON object value
+    ADD a, b, sum
+    RET sum
 ENDF
 ```
