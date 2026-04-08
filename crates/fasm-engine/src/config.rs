@@ -16,6 +16,9 @@ pub struct EngineConfig {
     pub engine: EngineSettings,
 
     #[serde(default)]
+    pub storage: StorageConfig,
+
+    #[serde(default)]
     pub routes: Vec<RouteConfig>,
 
     #[serde(default)]
@@ -48,6 +51,24 @@ impl Default for ServerConfig {
 pub struct PluginsConfig {
     /// Directory to scan for `*.plugin.toml` manifests at startup.
     pub discovery_dir: Option<PathBuf>,
+}
+
+/// Persistent storage and management API configuration.
+#[derive(Debug, Clone, Deserialize)]
+pub struct StorageConfig {
+    /// Root directory for uploaded FASM files and app manifests.
+    /// Relative to the config file location.
+    #[serde(default = "default_data_dir")]
+    pub data_dir: PathBuf,
+    /// If set, all `/api/v1/` admin requests must include
+    /// `X-Admin-Token: <token>`.  If unset, the admin API is open.
+    pub admin_token: Option<String>,
+}
+
+impl Default for StorageConfig {
+    fn default() -> Self {
+        Self { data_dir: default_data_dir(), admin_token: None }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -157,6 +178,7 @@ fn default_misfire()        -> MisfirePolicy { MisfirePolicy::Skip }
 fn default_queue_type()     -> QueueType { QueueType::Shared }
 fn default_max_retries()    -> u32 { 3 }
 fn default_timeout_secs()   -> u64 { 30 }
+fn default_data_dir()       -> PathBuf { PathBuf::from("data") }
 
 // ── loader ────────────────────────────────────────────────────────────────────
 
