@@ -72,14 +72,3 @@ mod tests {
         assert!(result.is_ok(), "apply([tmp]) failed: {:?}", result);
     }
 }
-
-
-        let result = std::thread::spawn(move || apply(&[tmp]))
-            .join()
-            .expect("thread panicked");
-        // On kernels that support Landlock this must succeed.
-        if landlock_abi_version().is_some() {
-            assert!(result.is_ok(), "apply failed: {:?}", result);
-        }
-    }
-}
