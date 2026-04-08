@@ -1,0 +1,52 @@
+DEFINE ARG_N, 0
+
+FUNC Fibonacci
+    PARAM ARG_N, INT32, n, REQUIRED
+
+    LOCAL 0, BOOL,   is_base
+    LOCAL 1, INT32,  n_val
+    LOCAL 2, INT32,  n_minus_1
+    LOCAL 3, INT32,  n_minus_2
+    LOCAL 4, INT32,  res1
+    LOCAL 5, INT32,  res2
+    LOCAL 6, INT32,  result
+    LOCAL 7, STRUCT, call_args
+
+    GET_FIELD $args, ARG_N, n_val
+
+    LABEL BaseCheck
+    LTE n_val, 1, is_base
+    JNZ is_base, BaseCase
+
+    SUB n_val, 1, n_minus_1
+    RESERVE 7, STRUCT, NULL
+    SET_FIELD call_args, ARG_N, n_minus_1
+    CALL Fibonacci, call_args
+    MOV $ret, res1
+
+    SUB n_val, 2, n_minus_2
+    SET_FIELD call_args, ARG_N, n_minus_2
+    CALL Fibonacci, call_args
+    MOV $ret, res2
+
+    ADD res1, res2, result
+    RET result
+
+    LABEL BaseCase
+    RET n_val
+ENDF
+
+FUNC Main
+    LOCAL 0, INT32,  answer
+    LOCAL 1, STRUCT, args
+    LOCAL 2, STRUCT, print_args
+
+    RESERVE 1, STRUCT, NULL
+    SET_FIELD args, ARG_N, 19
+    CALL Fibonacci, args
+    MOV $ret, answer
+
+    RESERVE 2, STRUCT, NULL
+    SET_FIELD print_args, 0, answer
+    SYSCALL 0, print_args
+ENDF

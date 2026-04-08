@@ -8,6 +8,10 @@ Directives used by the FASM assembler during the build process. These are proces
 Imports the contents of an external FASM file at the directive's location.
 - **Constraints**: Relative paths only. Built-in protection prevents circular includes.
 
+### IMPORT "filename.fasml" AS alias
+Loads a pre-compiled shared library.
+- **Behavior**: Makes functions from the library available via `alias.FunctionName`.
+
 ### DEFINE label, value
 Creates a compile-time constant. 
 - **Usage**: Use the `label` in place of a literal `value` throughout the code.
@@ -123,10 +127,21 @@ Invokes a defined function, passing a `STRUCT` as the argument register.
 - **Validation**: The static validator checks that all `REQUIRED` params are present as keys in the provided struct.
 - **Return Value**: After `CALL` returns, the result is available via the special symbol `$ret`.
 
+### ASYNC CALL name, struct
+Invokes a function asynchronously.
+- **Behavior**: Spawns a new execution context within the current sandbox. Immediately stores a `FUTURE` handle in `$ret`.
+- **Usage**: Used to run multiple operations concurrently within a sandbox.
+
+### AWAIT future, target
+Suspends the calling execution context until a `FUTURE` resolves.
+- **future**: A slot containing a `FUTURE` handle.
+- **target**: The slot to store the resolved value into.
+- **Behavior**: Yields execution control cooperatively.
+
 ### RET [value]
 Returns from the current function to the caller.
 - **value**: Optional. The value or symbolic name to return. Omitting `value` is a void return.
-- **Behavior**: All `LOCAL` memory is released. Execution resumes at the instruction after the originating `CALL`.
+- **Behavior**: All `LOCAL` memory is released. Execution resumes at the instruction after the originating `CALL` (or marks the `FUTURE` as resolved if called via `ASYNC CALL`).
 
 ## Syscalls
 
@@ -138,6 +153,10 @@ Invokes a host-defined system call.
 - **struct**: A `STRUCT` slot containing the input arguments for the syscall.
 - **Return Value**: Available via `$ret` after the call, if the syscall produces one.
 - **Behavior**: The host may also write response fields back into the passed `struct`.
+
+### ASYNC SYSCALL id, struct
+Invokes a system call asynchronously.
+- **Behavior**: Immediately returns a `FUTURE` handle in `$ret` without blocking the sandbox. Use `AWAIT` to get the result.
 
 ### Standard Syscall IDs
 
@@ -244,6 +263,20 @@ A First-In-First-Out (FIFO) buffer.
 - **Implementation**: Circular buffer to prevent fragmentation.
 - **Instructions**: Requires `ENQUEUE` and `DEQUEUE`.
 
+### Wrapper Types
+
+### OPTION
+A type representing an optional value.
+- **Instructions**: Interacted with via `SOME`, `IS_SOME`, and `UNWRAP`.
+
+### RESULT
+A type representing success or a fault code.
+- **Instructions**: Interacted with via `OK`, `ERR`, `IS_OK`, `UNWRAP_OK`, and `UNWRAP_ERR`.
+
+### FUTURE
+A type representing an asynchronous operation handle.
+- **Instructions**: Produced by `ASYNC CALL`/`ASYNC SYSCALL`, consumed by `AWAIT`.
+
 ## Collection Instructions
 
 ### PUSH collection, value
@@ -291,6 +324,34 @@ Removes the entry at `key` from a `STRUCT`.
 
 ### LEN collection, target
 Stores the current element count of a `VEC`, `STACK`, `QUEUE`, or `HEAP` into `target` (type `UINT32`).
+
+## Wrapper Instructions
+
+### SOME option, value
+Wraps a `value` in an `OPTION` slot.
+- **option**: A slot of type `OPTION`.
+
+### IS_SOME option, target
+Stores `TRUE` in `target` (a `BOOL` slot) if the `OPTION` contains a value, `FALSE` if it is `NULL`.
+
+### UNWRAP option, target
+Extracts the inner value of an `OPTION` into `target`.
+- **Constraint**: Triggers an `UnwrapFault` if the `OPTION` is `NULL`.
+
+### OK result, value
+Wraps a successful `value` in a `RESULT` slot.
+
+### ERR result, fault_code
+Wraps a `UINT32` `fault_code` in a `RESULT` slot.
+
+### IS_OK result, target
+Stores `TRUE` in `target` if the `RESULT` is `OK`.
+
+### UNWRAP_OK result, target
+Extracts the successful value into `target`. Triggers an `UnwrapFault` if it is an `ERR`.
+
+### UNWRAP_ERR result, target
+Extracts the fault code into `target`. Triggers an `UnwrapFault` if it is an `OK`.
 
 ## Reference Handling
 

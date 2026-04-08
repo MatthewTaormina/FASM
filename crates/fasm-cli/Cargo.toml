@@ -1,0 +1,13 @@
+[package]
+name = "fasm-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "fasm"
+path = "src/main.rs"
+
+[dependencies]
+fasm-bytecode  = { path = "../fasm-bytecode" }
+fasm-compiler  = { path = "../fasm-compiler" }
+fasm-sandbox   = { path = "../fasm-sandbox" }

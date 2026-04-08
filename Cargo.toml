@@ -1,0 +1,9 @@
+[workspace]
+members = [
+    "crates/fasm-bytecode",
+    "crates/fasm-compiler",
+    "crates/fasm-vm",
+    "crates/fasm-sandbox",
+    "crates/fasm-cli"
+]
+resolver = "2"

@@ -1,0 +1,8 @@
+[package]
+name = "fasm-sandbox"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fasm-bytecode = { path = "../fasm-bytecode" }
+fasm-vm       = { path = "../fasm-vm" }
