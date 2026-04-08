@@ -34,7 +34,7 @@
 
 > **KPI definitions:**
 > - *Cold start* — process-level overhead of loading the FASM compiler and
->   executing the first function, measured across 2 runs.
+>   executing the first function, measured across 20 runs.
 > - *HTTP throughput* — end-to-end requests/second through the full axum + FASM
 >   dispatcher stack, measured with ApacheBench.
 > - *Idle memory* — RSS of the fasm-engine process before any traffic.

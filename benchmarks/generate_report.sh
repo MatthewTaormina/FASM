@@ -30,6 +30,7 @@ RUST_VER=$(j '.meta.rust_version')
 NODE_VER=$(j '.meta.node_version')
 PYTHON_VER=$(j '.meta.python_version')
 AB_REQ=$(jn '.meta.ab_requests_per_test')
+COLD_START_RUNS=$(jn '.meta.cold_start_runs')
 
 BUILD_MS=$(jn '.build.fasm_build_time_ms')
 CLI_SIZE_KB=$(jq '.build.fasm_cli_binary_size_bytes / 1024 | floor' "$RAW_JSON")
@@ -159,7 +160,7 @@ cat > "$REPORT" <<MDEOF
 
 > **KPI definitions:**
 > - *Cold start* — process-level overhead of loading the FASM compiler and
->   executing the first function, measured across ${FASM_COLD} runs.
+>   executing the first function, measured across ${COLD_START_RUNS} runs.
 > - *HTTP throughput* — end-to-end requests/second through the full axum + FASM
 >   dispatcher stack, measured with ApacheBench.
 > - *Idle memory* — RSS of the fasm-engine process before any traffic.
