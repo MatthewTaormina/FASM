@@ -260,6 +260,86 @@ while True:
     sys.stdout.flush()
 ```
 
+## Sandbox & Security
+
+FASM programs run inside an isolated execution context (`fasm_sandbox::Sandbox`)
+that enforces three independent layers of protection.
+
+### Layer 1 — VM isolation (all platforms)
+
+The VM-level isolation is always active and does not depend on the host OS:
+
+| Guarantee | Detail |
+|---|---|
+| Explicit capability model | Every host capability must be mounted as a syscall handler. Any `SYSCALL` with an unmounted ID raises `BadSyscall` and terminates the program. |
+| Bounded call stack | The call stack is capped at **512 frames**. Infinite recursion raises `StackOverflow` — it cannot exhaust host memory or panic the host process. |
+| Type safety | Slots are typed at compile time. Using the wrong type at runtime raises `TypeMismatch`. |
+| Arithmetic safety | `DIV` and `MOD` with a zero divisor raise `DivisionByZero` rather than producing undefined behaviour. |
+| Fault isolation | A fault in one sandbox does not affect other sandboxes or the host runtime. Each `Sandbox` owns its own executor, frame memory, and global register. |
+
+### Layer 2 — Seccomp-BPF syscall denylist (Linux only)
+
+On Linux, setting `SandboxConfig::enable_seccomp = true` installs a
+kernel-enforced BPF filter on each execution thread before the program runs.
+The filter returns `EPERM` for high-risk syscall categories:
+
+- **Process creation** — `fork`, `vfork`, `clone`, `clone3`, `execve`, `execveat`
+- **Networking** — `socket`, `socketpair`, `bind`, `connect`, `listen`, `accept`, `accept4`
+- **Filesystem mounting** — `mount`, `umount2`, `pivot_root`, `chroot`
+- **Kernel patching** — `init_module`, `finit_module`, `delete_module`, `kexec_load`, `kexec_file_load`
+- **Namespace escape** — `unshare`, `setns`
+- **Process introspection** — `ptrace`, `process_vm_readv`, `process_vm_writev`
+- **BPF self-escalation** — `bpf`
+- **Perf side-channel** — `perf_event_open`
+- **Handle-based file open** — `open_by_handle_at`
+
+This means that even if a FASM program somehow exfiltrates a pointer to a
+native function, that function cannot call `fork()`, `execve()`, or open a
+network socket — the kernel will return `EPERM`.  The filter is applied to the
+calling OS thread only (no `TSYNC` flag), so the Tokio I/O threads used by the
+engine are unaffected.
+
+This layer is compiled in only when targeting Linux; the configuration field is
+accepted on all platforms but silently ignored on macOS and Windows.
+
+### Layer 3 — Landlock filesystem restrictions (Linux ≥ 5.13)
+
+Setting `SandboxConfig::enable_landlock = true` and providing a list of allowed
+read paths in `landlock_allowed_read_paths` restricts the execution thread to
+**read-only access** within those paths.  All writes, creates, removes, and
+executions on the rest of the filesystem are denied, even for paths that would
+normally be world-readable.
+
+On kernels older than 5.13 the call degrades silently — the sandbox runs
+normally with only Layers 1 and 2 active.
+
+### Platform summary
+
+| Layer | Linux | macOS | Windows |
+|---|---|---|---|
+| VM isolation (always on) | ✓ | ✓ | ✓ |
+| Seccomp-BPF denylist | ✓ | ✗ | ✗ |
+| Landlock filesystem restrictions | ✓ (kernel ≥ 5.13) | ✗ | ✗ |
+| Clock throttling | ✓ | ✓ | ✓ |
+
+Linux provides the strongest isolation guarantee.  On macOS and Windows
+only Layer 1 (VM isolation) applies.
+
+### Security test coverage
+
+The `fasm-sandbox` crate ships a dedicated jailbreak test suite
+(`tests/jailbreak_tests.rs`) that exercises all three layers:
+
+```sh
+cargo test -p fasm-sandbox --test jailbreak_tests
+```
+
+| Group | Tests | What is verified |
+|---|---|---|
+| VM-level | 5 | Unmounted syscall IDs rejected; infinite recursion → `StackOverflow`; arithmetic faults contained; failures isolated between sandboxes |
+| `seccomp_tests` (Linux) | 5 | `fork`, `socket`, `execve` blocked inside handlers; benign handlers still work; VM boundary holds with seccomp active |
+| `landlock_tests` (Linux) | 3 | Read outside allowed path denied; read inside allowed path succeeds; VM boundary holds with Landlock active |
+
 ## Control Flow
 
 ### LABEL name

@@ -2,11 +2,18 @@
 
 A sandboxed, typed assembly language that compiles to compact `.fasmc` bytecode and runs on a high-performance Rust VM. FASM is designed as an embeddable execution layer: deterministic, memory-safe, and extensible through native syscall handlers and IPC sidecar plugins.
 
+Untrusted programs are isolated through three defence layers — a VM-level capability model (all platforms), seccomp-BPF syscall denylist (Linux), and Landlock filesystem restrictions (Linux ≥ 5.13). See [**Sandbox & Security**](#sandbox--security) for details.
+
 ---
 
 ## Quick Start
 
 **Prerequisites**: Rust toolchain (`cargo`)
+
+> **Platform note**: Shell examples below use PowerShell / Windows paths.
+> On Linux / macOS replace `.\target\release\fasm.exe` with `./target/release/fasm`
+> and `\` path separators with `/`. Linux also gains seccomp-BPF and Landlock
+> isolation at runtime — no extra flags required.
 
 ```powershell
 # Build everything
@@ -46,7 +53,7 @@ FASM/
 │   ├── fasm-bytecode/         ← Instruction model, opcodes, binary encode/decode
 │   ├── fasm-compiler/         ← Lexer → Parser → Validator → Emitter
 │   ├── fasm-vm/               ← Runtime executor, memory, Value types, fault codes
-│   ├── fasm-sandbox/          ← Isolated execution context, clock throttling, IPC sidecars
+│   ├── fasm-sandbox/          ← Isolated execution context, seccomp-BPF + Landlock (Linux), clock throttling, IPC sidecars
 │   ├── fasm-cli/              ← `fasm` CLI binary
 │   │   └── src/bin/
 │   │       └── fibbench_native.rs  ← Native Rust fib benchmark (fair VM comparison)
@@ -384,11 +391,66 @@ Each instruction: `[1 byte opcode][1 byte operand count][operands…]`
 | [`fasm-bytecode`](crates/fasm-bytecode/) | Opcodes, type tags, `Instruction`/`Operand` model, binary encode/decode |
 | [`fasm-compiler`](crates/fasm-compiler/) | Lexer, parser, AST, static validator, two-pass bytecode emitter |
 | [`fasm-vm`](crates/fasm-vm/) | `Value` enum, `Frame`, `GlobalRegister`, `Executor`, fault codes |
-| [`fasm-sandbox`](crates/fasm-sandbox/) | `Sandbox` isolation wrapper, `ClockController`, IPC sidecar integration |
+| [`fasm-sandbox`](crates/fasm-sandbox/) | `Sandbox` isolation wrapper — VM-level capability model, seccomp-BPF (Linux), Landlock (Linux), `ClockController`, IPC sidecar integration |
 | [`fasm-cli`](crates/fasm-cli/) | `fasm` binary — `compile` / `run` / `exec` / `check` / `bench` |
 | [`fasm-engine`](crates/fasm-engine/) | FaaS HTTP gateway — routing, queues, pub/sub, cron, metrics |
 
 ---
+
+## Sandbox & Security
+
+FASM runs untrusted programs through three independent isolation layers.
+
+### Layer 1 — VM isolation (all platforms)
+
+The VM enforces isolation by design, regardless of OS:
+
+| Guarantee | Mechanism |
+|---|---|
+| No un-granted capability | Syscall IDs not mounted on the sandbox return `BadSyscall` fault |
+| Bounded stack depth | `StackOverflow` fault at 512 call frames — infinite recursion is contained |
+| Type safety | Every slot has a declared type; type mismatches raise a `TypeMismatch` fault |
+| Arithmetic safety | Division / modulo by zero raises `DivisionByZero`, not undefined behaviour |
+| No cross-sandbox state | Each `Sandbox` owns its own `Executor`, frame memory, and globals |
+
+### Layer 2 — Seccomp-BPF syscall denylist (Linux only)
+
+On Linux, `SandboxConfig::enable_seccomp = true` installs a BPF filter on each
+execution thread (using the [`seccompiler`] crate — the same library used by
+Firecracker) that returns `EPERM` for dangerous syscall categories:
+
+- **Process creation**: `fork`, `vfork`, `clone`, `clone3`, `execve`, `execveat`
+- **Networking**: `socket`, `socketpair`, `bind`, `connect`, `listen`, `accept`, `accept4`
+- **Filesystem mounting**: `mount`, `umount2`, `pivot_root`, `chroot`
+- **Kernel patching**: `init_module`, `finit_module`, `delete_module`, `kexec_load`
+- **Namespace escape**: `unshare`, `setns`
+- **Process introspection**: `ptrace`, `process_vm_readv`, `process_vm_writev`
+- **BPF self-escalation**: `bpf`
+- **Perf side-channel**: `perf_event_open`
+
+The filter is per-thread only, so other Tokio runtime threads are unaffected.
+
+### Layer 3 — Landlock filesystem restrictions (Linux ≥ 5.13)
+
+`SandboxConfig::enable_landlock = true` restricts the execution thread to
+**read-only access** within the paths listed in `landlock_allowed_read_paths`.
+All write, create, remove, and execute operations are denied globally.  On
+kernels older than 5.13 the call degrades gracefully with no effect.
+
+### Platform summary
+
+| Layer | Linux | macOS | Windows |
+|---|---|---|---|
+| VM isolation (typed memory, bounded stack, syscall table) | ✓ | ✓ | ✓ |
+| Seccomp-BPF syscall denylist | ✓ | ✗ | ✗ |
+| Landlock filesystem restrictions | ✓ (kernel ≥ 5.13) | ✗ | ✗ |
+| Clock throttling (instruction-rate limit) | ✓ | ✓ | ✓ |
+
+Linux provides the strongest isolation guarantee. macOS and Windows rely on
+the VM-level isolation (Layer 1) only.
+
+See [`crates/fasm-sandbox/README.md`](crates/fasm-sandbox/README.md) for the
+full configuration reference, API docs, and security test coverage.
 
 ## Clock Throttling
 
