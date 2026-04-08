@@ -528,6 +528,7 @@ dependencies = [
  "seccompiler",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
