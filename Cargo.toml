@@ -4,6 +4,7 @@ members = [
     "crates/fasm-compiler",
     "crates/fasm-vm",
     "crates/fasm-sandbox",
-    "crates/fasm-cli"
+    "crates/fasm-cli",
+    "crates/fasm-engine",
 ]
 resolver = "2"
