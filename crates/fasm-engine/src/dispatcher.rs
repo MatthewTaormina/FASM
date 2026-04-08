@@ -5,10 +5,23 @@
 //! 2. Moves the VM into a `tokio::task::spawn_blocking` call (CPU-bound sync work).
 //! 3. Either awaits the result (`spawn_async`) or fires-and-forgets (`spawn_fire_and_forget`).
 //! 4. Records metrics on completion.
+//!
+//! ## Sandbox pooling
+//!
+//! Creating a fresh `Sandbox` per request requires allocating a `HashMap` for the
+//! syscall table and registering ~7 closures.  Instead, each blocking OS thread
+//! caches its sandbox in a `thread_local!` cell.  On the first request for a
+//! given thread the sandbox is created and the engine syscalls are mounted once;
+//! subsequent requests on the same thread skip that setup entirely.
+//!
+//! Between invocations the sandbox is reset via [`Sandbox::reset`], which clears
+//! the call stack.  Global FASM slots are re-initialised by `run_named` at the
+//! start of every invocation, so no additional cleanup is required.
 
 use fasm_bytecode::Program;
 use fasm_sandbox::{Sandbox, SandboxConfig};
 use fasm_vm::Value;
+use std::cell::RefCell;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 
@@ -108,10 +121,12 @@ impl TaskDispatcher {
         let result = tokio::task::spawn_blocking(move || {
             let _permit = permit; // released on drop
             let start = std::time::Instant::now();
-            let mut sb = Sandbox::from_config(new_id(), &sandbox_cfg);
 
-            // Mount engine syscalls
-            mount_engine_syscalls(&mut sb, &metrics);
+            // Reuse a pooled sandbox from this OS thread when available.
+            // On the first request for a given thread the sandbox is created
+            // and the engine syscalls are mounted once; subsequent requests
+            // skip that setup entirely.
+            let mut sb = acquire_sandbox(&sandbox_cfg, &metrics);
 
             let res = sb.run_named(&req.program, &req.func, req.args.clone());
             let ms = start.elapsed().as_millis() as u64;
@@ -120,6 +135,9 @@ impl TaskDispatcher {
                 metrics.record_error(&req.func);
             }
             metrics.dec_active();
+
+            // Return the sandbox to the thread-local pool for reuse.
+            release_sandbox(sb);
             res
         })
         .await
@@ -155,8 +173,7 @@ impl TaskDispatcher {
             let sandbox_cfg2 = sandbox_cfg.clone();
             let res = tokio::task::spawn_blocking(move || {
                 let start = std::time::Instant::now();
-                let mut sb = Sandbox::from_config(new_id(), &sandbox_cfg2);
-                mount_engine_syscalls(&mut sb, &metrics2);
+                let mut sb = acquire_sandbox(&sandbox_cfg2, &metrics2);
                 let r = sb.run_named(&req.program, &req.func, req.args.clone());
                 let ms = start.elapsed().as_millis() as u64;
                 metrics2.record_duration_ms(&req.func, ms);
@@ -164,6 +181,7 @@ impl TaskDispatcher {
                     metrics2.record_error(&req.func);
                 }
                 metrics2.dec_active();
+                release_sandbox(sb);
                 r
             })
             .await;
@@ -183,6 +201,47 @@ fn new_id() -> u64 {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(1);
     COUNTER.fetch_add(1, Ordering::Relaxed)
+}
+
+// ── Thread-local sandbox pool ─────────────────────────────────────────────────
+//
+// Each tokio blocking thread caches one `Sandbox`.  On the first request for
+// a given thread the sandbox is built and the engine syscalls are mounted once.
+// On every subsequent request the sandbox is taken from the cell, reset (call
+// stack cleared), used, then returned to the cell — avoiding all HashMap
+// allocations and closure registrations on the hot path.
+//
+// Safety: `thread_local!` values are per-thread by construction; no
+// synchronisation is required.
+
+thread_local! {
+    static THREAD_SANDBOX: RefCell<Option<Sandbox>> = const { RefCell::new(None) };
+}
+
+/// Retrieve a sandbox ready for use: either a recycled one from the thread-local
+/// cache or a freshly constructed one with all engine syscalls pre-mounted.
+fn acquire_sandbox(sandbox_cfg: &Arc<SandboxConfig>, metrics: &MetricsRegistry) -> Sandbox {
+    let cached = THREAD_SANDBOX.with(|cell| cell.borrow_mut().take());
+    match cached {
+        Some(mut sb) => {
+            // Ensure clean call-stack state from any previous invocation.
+            sb.reset();
+            sb
+        }
+        None => {
+            // First request on this thread — build and wire the sandbox once.
+            let mut sb = Sandbox::from_config(new_id(), sandbox_cfg);
+            mount_engine_syscalls(&mut sb, metrics);
+            sb
+        }
+    }
+}
+
+/// Return a sandbox to the thread-local cache after an invocation completes.
+fn release_sandbox(sb: Sandbox) {
+    THREAD_SANDBOX.with(|cell| {
+        *cell.borrow_mut() = Some(sb);
+    });
 }
 
 /// Mount the engine-reserved syscalls (IDs 10–49) into a fresh sandbox.

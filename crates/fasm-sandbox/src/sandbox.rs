@@ -83,6 +83,19 @@ impl Sandbox {
         self.clock.instructions_per_tick = hz;
     }
 
+    /// Reset execution state between invocations when this sandbox is pooled.
+    ///
+    /// Clears the executor's call stack so a recycled sandbox starts each new
+    /// invocation with a clean slate.  Syscall registrations and sandbox
+    /// configuration are preserved — they are set up once at pool-entry time
+    /// and reused across requests, which is the primary performance benefit.
+    ///
+    /// Global FASM variables are re-initialised by [`run_named`] at the start
+    /// of every invocation, so they do not need to be reset here.
+    pub fn reset(&mut self) {
+        self.executor.reset_call_stack();
+    }
+
     /// Mount a custom syscall handler.
     pub fn mount_syscall(&mut self, id: i32, handler: SyscallFn) {
         self.executor.mount_syscall(id, handler);

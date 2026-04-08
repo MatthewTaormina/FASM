@@ -27,7 +27,9 @@ struct TryGuard {
 
 /// One entry on the call stack.
 struct CallFrame {
-    func_name: String,
+    /// Index into `Program::functions` — O(1) access, avoids a String clone and
+    /// a linear `get_function()` scan on every instruction dispatch.
+    func_idx: usize,
     ip: usize,
     frame: Frame,
     args: Value,    // the incoming STRUCT ($args)
@@ -37,9 +39,9 @@ struct CallFrame {
 }
 
 impl CallFrame {
-    fn new(func_name: String, args: Value) -> Self {
+    fn new(func_idx: usize, args: Value) -> Self {
         Self {
-            func_name,
+            func_idx,
             ip: 0,
             frame: Frame::new(),
             args,
@@ -69,6 +71,17 @@ impl Executor {
         };
         ex.register_builtins();
         ex
+    }
+
+    /// Clear the call stack so this executor can be safely reused for a new
+    /// invocation.  Called by [`fasm_sandbox::Sandbox::reset`] when a pooled
+    /// sandbox is recycled between requests.
+    ///
+    /// Global slots are re-initialised by [`run_named`] at the start of every
+    /// invocation (the `Reserve` global-inits loop), so they do not need to
+    /// be cleared here.
+    pub fn reset_call_stack(&mut self) {
+        self.call_stack.clear();
     }
 
     fn register_builtins(&mut self) {
@@ -231,20 +244,22 @@ impl Executor {
             }
         }
 
-        let _ = program
-            .get_function(func)
+        let func_idx = program
+            .get_function_index(func)
             .ok_or_else(|| format!("No '{}' function found in program", func))?;
 
-        self.call_stack.push(CallFrame::new(func.to_string(), args));
+        self.call_stack.push(CallFrame::new(func_idx, args));
 
         loop {
             let frame_idx = self.call_stack.len() - 1;
             let ip = self.call_stack[frame_idx].ip;
-            let func_name = self.call_stack[frame_idx].func_name.clone();
+            let func_idx = self.call_stack[frame_idx].func_idx;
 
+            // O(1) direct index — no String clone, no linear scan.
             let func_def = program
-                .get_function(&func_name)
-                .ok_or_else(|| format!("Function '{}' not found", func_name))?;
+                .functions
+                .get(func_idx)
+                .ok_or_else(|| format!("Function index {} out of range", func_idx))?;
 
             if ip >= func_def.instructions.len() {
                 // Implicit HALT / void return at ENDF
@@ -262,25 +277,28 @@ impl Executor {
                 continue;
             }
 
-            let instr = func_def.instructions[ip].clone();
+            // Borrow the instruction directly — no clone, no heap allocation.
+            // `instr` has lifetime tied to `program` (not `self`), so all
+            // subsequent `&mut self` operations are borrow-checker safe.
+            let instr = &func_def.instructions[ip];
             self.call_stack[frame_idx].ip += 1;
 
-            match self.execute_instruction(&instr, program) {
+            match self.execute_instruction(instr, program) {
                 Ok(action) => {
                     match action {
                         Action::Continue => {}
                         Action::Jump(target) => {
                             self.call_stack.last_mut().unwrap().ip = target;
                         }
-                        Action::CallFunc(name, args) => {
+                        Action::CallFunc(cidx, args) => {
                             if self.call_stack.len() >= MAX_CALL_DEPTH {
                                 return Err(format!("{}", Fault::StackOverflow));
                             }
-                            self.call_stack.push(CallFrame::new(name, args));
+                            self.call_stack.push(CallFrame::new(cidx, args));
                         }
-                        Action::TailCall(name, args) => {
+                        Action::TailCall(cidx, args) => {
                             let frame = self.call_stack.last_mut().unwrap();
-                            frame.func_name = name;
+                            frame.func_idx = cidx;
                             frame.ip = 0;
                             frame.frame = Frame::new();
                             frame.args = args;
@@ -310,6 +328,11 @@ impl Executor {
                         cf.ret_val = Value::Uint32(fault.code());
                         cf.ip = g.catch_ip;
                     } else {
+                        let func_name = program
+                            .functions
+                            .get(func_idx)
+                            .map(|f| f.name.as_str())
+                            .unwrap_or("<unknown>");
                         return Err(format!(
                             "Unhandled fault in '{}' at ip {}: {}",
                             func_name, ip, fault
@@ -451,21 +474,19 @@ impl Executor {
             }
             Opcode::Call | Opcode::AsyncCall | Opcode::TailCall => {
                 let func_idx = match get_op!(0) {
-                    Operand::FuncRef(idx) => *idx,
+                    Operand::FuncRef(idx) => *idx as usize,
                     _ => return Err(Fault::TypeMismatch),
                 };
-                let name = program
-                    .functions
-                    .get(func_idx as usize)
-                    .ok_or(Fault::UndeclaredSlot)?
-                    .name
-                    .clone();
+                // Validate the index before pushing a new frame.
+                if func_idx >= program.functions.len() {
+                    return Err(Fault::UndeclaredSlot);
+                }
                 let args = read_val!(get_op!(1));
 
                 if instr.opcode == Opcode::TailCall {
-                    Ok(Action::TailCall(name.clone(), args))
+                    Ok(Action::TailCall(func_idx, args))
                 } else {
-                    Ok(Action::CallFunc(name.clone(), args))
+                    Ok(Action::CallFunc(func_idx, args))
                 }
             }
             Opcode::Neg => {
@@ -1479,8 +1500,9 @@ impl Executor {
 enum Action {
     Continue,
     Jump(usize),
-    CallFunc(String, Value),
-    TailCall(String, Value),
+    /// Carry the function *index* (into `Program::functions`) — no String allocation.
+    CallFunc(usize, Value),
+    TailCall(usize, Value),
     Return(Value),
     Halt,
 }
