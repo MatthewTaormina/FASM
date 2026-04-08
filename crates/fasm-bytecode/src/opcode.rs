@@ -211,3 +211,120 @@ impl TryFrom<u8> for Opcode {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_known_opcodes_round_trip() {
+        let known: &[(u8, Opcode)] = &[
+            (0x00, Opcode::Nop),
+            (0x01, Opcode::Reserve),
+            (0x02, Opcode::Release),
+            (0x03, Opcode::Mov),
+            (0x04, Opcode::Store),
+            (0x05, Opcode::Addr),
+            (0x10, Opcode::Add),
+            (0x11, Opcode::Sub),
+            (0x12, Opcode::Mul),
+            (0x13, Opcode::Div),
+            (0x14, Opcode::Mod),
+            (0x15, Opcode::Neg),
+            (0x20, Opcode::Eq),
+            (0x21, Opcode::Neq),
+            (0x22, Opcode::Lt),
+            (0x23, Opcode::Lte),
+            (0x24, Opcode::Gt),
+            (0x25, Opcode::Gte),
+            (0x30, Opcode::And),
+            (0x31, Opcode::Or),
+            (0x32, Opcode::Xor),
+            (0x33, Opcode::Not),
+            (0x34, Opcode::Shl),
+            (0x35, Opcode::Shr),
+            (0x40, Opcode::Jmp),
+            (0x41, Opcode::Jz),
+            (0x42, Opcode::Jnz),
+            (0x43, Opcode::Call),
+            (0x44, Opcode::AsyncCall),
+            (0x45, Opcode::Ret),
+            (0x46, Opcode::Await),
+            (0x47, Opcode::TailCall),
+            (0x48, Opcode::TmpBlock),
+            (0x49, Opcode::EndTmp),
+            (0x50, Opcode::Syscall),
+            (0x51, Opcode::AsyncSyscall),
+            (0x60, Opcode::Push),
+            (0x61, Opcode::Pop),
+            (0x62, Opcode::Enqueue),
+            (0x63, Opcode::Dequeue),
+            (0x64, Opcode::Peek),
+            (0x65, Opcode::GetIdx),
+            (0x66, Opcode::SetIdx),
+            (0x67, Opcode::GetField),
+            (0x68, Opcode::SetField),
+            (0x69, Opcode::HasField),
+            (0x6A, Opcode::DelField),
+            (0x6B, Opcode::Len),
+            (0x6C, Opcode::Prepend),
+            (0x6D, Opcode::PopBack),
+            (0x6E, Opcode::PeekBack),
+            (0x70, Opcode::Some_),
+            (0x71, Opcode::IsSome),
+            (0x72, Opcode::Unwrap),
+            (0x73, Opcode::Ok_),
+            (0x74, Opcode::Err_),
+            (0x75, Opcode::IsOk),
+            (0x76, Opcode::UnwrapOk),
+            (0x77, Opcode::UnwrapErr),
+            (0x80, Opcode::Cast),
+            (0x90, Opcode::Try),
+            (0x91, Opcode::Catch),
+            (0x92, Opcode::EndTry),
+            (0xA0, Opcode::VecSort),
+            (0xA1, Opcode::VecFilter),
+            (0xA2, Opcode::VecMerge),
+            (0xA3, Opcode::VecSlice),
+            (0xA4, Opcode::SparseGet),
+            (0xA5, Opcode::SparseSet),
+            (0xA6, Opcode::SparseDel),
+            (0xA7, Opcode::SparseHas),
+            (0xA8, Opcode::BTreeGet),
+            (0xA9, Opcode::BTreeSet),
+            (0xAA, Opcode::BTreeDel),
+            (0xAB, Opcode::BTreeHas),
+            (0xAC, Opcode::BTreeMin),
+            (0xAD, Opcode::BTreeMax),
+            (0xB0, Opcode::BitSet_),
+            (0xB1, Opcode::BitClr),
+            (0xB2, Opcode::BitGet),
+            (0xB3, Opcode::BitFlip),
+            (0xB4, Opcode::BitCount),
+            (0xB5, Opcode::BitAnd),
+            (0xB6, Opcode::BitOr),
+            (0xB7, Opcode::BitXor),
+            (0xB8, Opcode::BitGrow),
+            (0xC0, Opcode::BitvecRead),
+            (0xC1, Opcode::BitvecWrite),
+            (0xC2, Opcode::BitvecPush),
+            (0xFF, Opcode::Halt),
+        ];
+        for &(byte, expected) in known {
+            let decoded = Opcode::try_from(byte).expect("known opcode must decode");
+            assert_eq!(decoded, expected, "opcode 0x{:02X} mismatch", byte);
+            assert_eq!(decoded as u8, byte, "repr byte for {:?} mismatch", expected);
+        }
+    }
+
+    #[test]
+    fn test_unknown_opcode_returns_error() {
+        for byte in [0x06u8, 0x09, 0x0F, 0x16, 0x1F, 0x26, 0x2F, 0x93, 0xFE] {
+            assert!(
+                Opcode::try_from(byte).is_err(),
+                "byte 0x{:02X} should not decode to a valid opcode",
+                byte
+            );
+        }
+    }
+}

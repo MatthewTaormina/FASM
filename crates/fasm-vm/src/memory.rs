@@ -97,3 +97,126 @@ impl GlobalRegister {
         self.slots = snap;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── Frame tests ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_frame_set_and_get() {
+        let mut frame = Frame::new();
+        frame.set(0, Value::Int32(42));
+        frame.set(5, Value::Bool(true));
+        assert_eq!(frame.get(0), Some(&Value::Int32(42)));
+        assert_eq!(frame.get(5), Some(&Value::Bool(true)));
+        assert_eq!(frame.get(3), None);
+    }
+
+    #[test]
+    fn test_frame_set_overwrites() {
+        let mut frame = Frame::new();
+        frame.set(2, Value::Int32(1));
+        frame.set(2, Value::Int32(99));
+        assert_eq!(frame.get(2), Some(&Value::Int32(99)));
+    }
+
+    #[test]
+    fn test_frame_get_beyond_allocated_returns_none() {
+        let frame = Frame::new();
+        assert_eq!(frame.get(200), None);
+    }
+
+    #[test]
+    fn test_frame_remove_clears_slot() {
+        let mut frame = Frame::new();
+        frame.set(1, Value::Uint8(7));
+        frame.remove(1);
+        assert_eq!(frame.get(1), None);
+    }
+
+    #[test]
+    fn test_frame_remove_unset_slot_is_safe() {
+        let mut frame = Frame::new();
+        frame.remove(10); // no-op on empty frame — must not panic
+    }
+
+    #[test]
+    fn test_frame_snapshot_and_restore() {
+        let mut frame = Frame::new();
+        frame.set(0, Value::Int32(10));
+        frame.set(1, Value::Bool(false));
+        let snap = frame.snapshot();
+
+        frame.set(0, Value::Int32(99));
+        frame.set(2, Value::Float32(1.5));
+        assert_eq!(frame.get(0), Some(&Value::Int32(99)));
+
+        frame.restore(snap);
+        assert_eq!(frame.get(0), Some(&Value::Int32(10)));
+        assert_eq!(frame.get(1), Some(&Value::Bool(false)));
+        assert_eq!(frame.get(2), None);
+    }
+
+    #[test]
+    fn test_frame_get_mut() {
+        let mut frame = Frame::new();
+        frame.set(3, Value::Int32(0));
+        if let Some(Value::Int32(n)) = frame.get_mut(3) {
+            *n = 55;
+        }
+        assert_eq!(frame.get(3), Some(&Value::Int32(55)));
+    }
+
+    // ── GlobalRegister tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_global_set_and_get() {
+        let mut reg = GlobalRegister::new();
+        reg.set(0, Value::Uint64(1_000_000));
+        reg.set(1000, Value::Bool(true));
+        assert_eq!(reg.get(0), Some(&Value::Uint64(1_000_000)));
+        assert_eq!(reg.get(1000), Some(&Value::Bool(true)));
+        assert_eq!(reg.get(500), None);
+    }
+
+    #[test]
+    fn test_global_remove() {
+        let mut reg = GlobalRegister::new();
+        reg.set(5, Value::Int8(-1));
+        reg.remove(5);
+        assert_eq!(reg.get(5), None);
+    }
+
+    #[test]
+    fn test_global_snapshot_and_restore() {
+        let mut reg = GlobalRegister::new();
+        reg.set(0, Value::Int32(1));
+        let snap = reg.snapshot();
+
+        reg.set(0, Value::Int32(999));
+        reg.restore(snap);
+        assert_eq!(reg.get(0), Some(&Value::Int32(1)));
+    }
+
+    #[test]
+    fn test_global_get_mut() {
+        let mut reg = GlobalRegister::new();
+        reg.set(2, Value::Uint32(0));
+        if let Some(Value::Uint32(n)) = reg.get_mut(2) {
+            *n = 42;
+        }
+        assert_eq!(reg.get(2), Some(&Value::Uint32(42)));
+    }
+
+    // ── TmpFrame tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_tmp_frame_default_all_none() {
+        let tf = TmpFrame::new();
+        for slot in &tf.slots {
+            assert!(slot.is_none());
+        }
+    }
+}
