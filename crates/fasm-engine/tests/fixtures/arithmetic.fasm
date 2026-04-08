@@ -1,0 +1,38 @@
+// arithmetic.fasm — integer arithmetic workload
+// Exercises ADD, SUB, MUL, DIV, MOD in a tight loop.
+// Returns Int32(result) — the accumulated value after 100 iterations.
+
+FUNC ArithLoop
+    LOCAL 0, INT32, i
+    LOCAL 1, INT32, acc
+    LOCAL 2, INT32, tmp
+    LOCAL 3, BOOL,  done
+    LOCAL 4, INT32, limit
+
+    STORE 0,   i
+    STORE 0,   acc
+    STORE 100, limit
+
+    LABEL ArithNext
+    EQ i, limit, done
+    JNZ done, ArithDone
+
+    // acc = acc + i
+    ADD acc, i, tmp
+    MOV tmp, acc
+
+    // acc = acc * 2 / 2  (no-op multiply then divide to exercise more ops)
+    MUL acc, 2, tmp
+    DIV tmp, 2, acc
+
+    // i++
+    ADD i, 1, i
+    JMP ArithNext
+
+    LABEL ArithDone
+    RET acc
+ENDF
+
+FUNC Main
+    RET
+ENDF
