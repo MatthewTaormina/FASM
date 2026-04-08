@@ -36,6 +36,64 @@ Change the `SET_FIELD args, ARG_N, 19` line to any non-negative integer to compu
 
 ---
 
+## calculator.fasm / calculator.c
+
+A side-by-side CLI calculator in **FASM** and **C** showing that FASM can express the same high-level logic as a systems language.
+
+Demonstrates:
+- **Control flow** — `WHILE`-style REPL loop with `LABEL` / `JMP` / `JNZ`
+- **Scoping** — `FUNC` frames, `LOCAL` slots, `PARAM` declarations
+- **User I/O** — `SYSCALL 2` (READ line), `SYSCALL 0/1` (PRINT / PRINT_VEC)
+- **String literals** — `"Hello, world!"` compiles to `VEC<UINT8>` at runtime
+- **Error handling** — `RESULT<INT32>` wrapper with `IS_OK` / `UNWRAP_ERR` / `UNWRAP_OK`
+- **SYSCALL 4** (`PARSE_INT`) — converts a `VEC<UINT8>` of digits to `INT32`, mirrors C's `atoi`
+
+### Run (FASM)
+
+```powershell
+.\target\debug\fasm.exe run examples\calculator.fasm
+```
+
+### Build & Run (C reference)
+
+```bash
+gcc -o calculator examples/calculator.c && ./calculator
+```
+
+### Example session
+
+```
+=== FASM Demo: CLI Calculator ===
+Supported operators: +  -  *  /  %
+Type 'q' to quit.
+
+Enter first number: 12
+Enter operator (+  -  *  /  %): +
+Enter second number: 34
+Result: 12 + 34 = 46
+
+Enter first number: 100
+Enter operator (+  -  *  /  %): /
+Enter second number: 0
+Error: division by zero.
+
+Enter first number: q
+Goodbye.
+```
+
+### Language feature comparison
+
+| C concept         | FASM equivalent                                   |
+|-------------------|---------------------------------------------------|
+| `while(1) {...}`  | `LABEL loop` … `JMP loop`                        |
+| Function calls    | `FUNC` / `CALL` with `STRUCT` args               |
+| `printf("...")`   | `SET_FIELD ps, 0, "..."` + `SYSCALL 1, ps`       |
+| `fgets` / `scanf` | `SYSCALL 2` (READ) + `SYSCALL 4` (PARSE_INT)     |
+| Error codes       | `RESULT<INT32>` + `IS_OK` / `UNWRAP_ERR`         |
+| `atoi`            | `SYSCALL 4` (PARSE_INT)                          |
+
+---
+
 ## Adding Your Own Example
 
 1. Create `examples/yourprogram.fasm`

@@ -1,1 +1,8 @@
 /target
+
+# Compiled FASM bytecode artifacts
+*.fasmc
+
+# Temp build output files
+b.txt
+build_out.txt

@@ -81,6 +81,7 @@ pub enum AstValue {
     HexInt(u64),
     Float(f64),
     Deref(String),       // &name
+    Str(String),         // "..." literal — compiled to VEC<UINT8> (UTF-8 bytes)
     Null,
     True,
     False,

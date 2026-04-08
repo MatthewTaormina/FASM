@@ -50,6 +50,7 @@ const TAG_IMM_U64: u8     = 0x18;
 const TAG_IMM_F32: u8     = 0x19;
 const TAG_IMM_F64: u8     = 0x1A;
 const TAG_IMM_NULL: u8    = 0x1B;
+const TAG_IMM_STR: u8     = 0x1C;  // UTF-8 string literal → VEC<UINT8> at runtime
 const TAG_FUNC_REF: u8    = 0x20;
 const TAG_LABEL: u8       = 0x21;
 const TAG_SYSCALL_ID: u8  = 0x22;
@@ -141,6 +142,7 @@ fn encode_operand(op: &Operand, out: &mut Vec<u8>) {
             Immediate::Float32(v) => { out.push(TAG_IMM_F32);  out.extend_from_slice(&v.to_le_bytes()); }
             Immediate::Float64(v) => { out.push(TAG_IMM_F64);  out.extend_from_slice(&v.to_le_bytes()); }
             Immediate::Null       =>   out.push(TAG_IMM_NULL),
+            Immediate::Str(s)     => { out.push(TAG_IMM_STR); encode_string(s, out); }
         },
         Operand::FuncRef(i)   => { out.push(TAG_FUNC_REF);   out.extend_from_slice(&i.to_le_bytes()); }
         Operand::LabelTarget(a) => { out.push(TAG_LABEL);    out.extend_from_slice(&a.to_le_bytes()); }
@@ -228,6 +230,7 @@ fn decode_operand(c: &mut Cursor) -> Result<Operand, String> {
         TAG_IMM_F32  => Ok(Operand::Imm(Immediate::Float32(c.read_f32()?))),
         TAG_IMM_F64  => Ok(Operand::Imm(Immediate::Float64(c.read_f64()?))),
         TAG_IMM_NULL => Ok(Operand::Imm(Immediate::Null)),
+        TAG_IMM_STR  => Ok(Operand::Imm(Immediate::Str(c.read_string()?))),
         TAG_FUNC_REF => Ok(Operand::FuncRef(c.read_u16()?)),
         TAG_LABEL    => Ok(Operand::LabelTarget(c.read_u32()?)),
         TAG_SYSCALL_ID => Ok(Operand::SyscallId(c.read_i32()?)),

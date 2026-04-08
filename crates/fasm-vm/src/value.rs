@@ -190,7 +190,25 @@ impl Value {
     pub fn cmp_gt(&self, other: &Value) -> Option<bool>  { numeric_cmp(self, other, |a,b| a>b, |a,b| a>b) }
     pub fn cmp_gte(&self, other: &Value) -> Option<bool> { numeric_cmp(self, other, |a,b| a>=b, |a,b| a>=b) }
 
-    pub fn eq_val(&self, other: &Value) -> bool { self == other }
+    pub fn eq_val(&self, other: &Value) -> bool {
+        // For numeric types, coerce both to i64 for comparison so that
+        // e.g. Uint32(0) == Int32(0). This avoids type-tag mismatches
+        // when comparing LEN output (UINT32) with integer literals (INT32).
+        let ai = numeric_as_i64(self);
+        let bi = numeric_as_i64(other);
+        match (ai, bi) {
+            (Some(a), Some(b)) => a == b,
+            // Float comparisons
+            _ => {
+                let af = numeric_as_f64(self);
+                let bf = numeric_as_f64(other);
+                match (af, bf) {
+                    (Some(a), Some(b)) => a == b,
+                    _ => self == other,  // exact equality for non-numeric types
+                }
+            }
+        }
+    }
 
     // Bitwise — integer only
     pub fn bit_and(&self, other: &Value) -> Option<Value> { bitwise_op(self, other, |a,b| a&b) }
@@ -229,6 +247,31 @@ impl Value {
     }
 }
 
+/// Extract an integer representation from any numeric Value. Returns None for non-numeric types.
+pub(crate) fn numeric_as_i64(v: &Value) -> Option<i64> {
+    match v {
+        Value::Bool(b)    => Some(*b as i64),
+        Value::Int8(n)    => Some(*n as i64),
+        Value::Int16(n)   => Some(*n as i64),
+        Value::Int32(n)   => Some(*n as i64),
+        Value::Int64(n)   => Some(*n),
+        Value::Uint8(n)   => Some(*n as i64),
+        Value::Uint16(n)  => Some(*n as i64),
+        Value::Uint32(n)  => Some(*n as i64),
+        Value::Uint64(n)  => Some(*n as i64),
+        _ => None,
+    }
+}
+
+/// Extract a float representation from any numeric Value (floats only — int callers use numeric_as_i64).
+pub(crate) fn numeric_as_f64(v: &Value) -> Option<f64> {
+    match v {
+        Value::Float32(f) => Some(*f as f64),
+        Value::Float64(f) => Some(*f),
+        _ => None,
+    }
+}
+
 fn numeric_op(
     a: &Value, b: &Value,
     int_op: impl Fn(i64, i64) -> i64,
@@ -254,6 +297,8 @@ fn numeric_cmp(
     int_cmp: impl Fn(i64, i64) -> bool,
     float_cmp: impl Fn(f64, f64) -> bool,
 ) -> Option<bool> {
+    // Try same-type comparison first (exact), then fall back to i64 coercion
+    // so that e.g. UINT32 len compared with INT32 literal works.
     match (a, b) {
         (Value::Int8(x),    Value::Int8(y))    => Some(int_cmp(*x as i64, *y as i64)),
         (Value::Int16(x),   Value::Int16(y))   => Some(int_cmp(*x as i64, *y as i64)),
@@ -265,7 +310,12 @@ fn numeric_cmp(
         (Value::Uint64(x),  Value::Uint64(y))  => Some(int_cmp(*x as i64, *y as i64)),
         (Value::Float32(x), Value::Float32(y)) => Some(float_cmp(*x as f64, *y as f64)),
         (Value::Float64(x), Value::Float64(y)) => Some(float_cmp(*x, *y)),
-        _ => None,
+        // Cross-type numeric coercion via i64
+        _ => {
+            let ai = numeric_as_i64(a)?;
+            let bi = numeric_as_i64(b)?;
+            Some(int_cmp(ai, bi))
+        }
     }
 }
 

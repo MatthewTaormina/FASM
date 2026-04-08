@@ -509,6 +509,8 @@ fn ast_value_to_operand(
         AstValue::Integer(n) => Operand::Imm(Immediate::Int32(*n as i32)),
         AstValue::HexInt(n)  => Operand::Imm(Immediate::Uint32(*n as u32)),
         AstValue::Float(f)   => Operand::Imm(Immediate::Float64(*f)),
+        // String literals compile to VEC<UINT8> at runtime via Immediate::Str
+        AstValue::Str(s) => Operand::Imm(Immediate::Str(s.clone())),
         AstValue::Deref(name) => {
             if let Some(&idx) = locals.get(name) {
                 Operand::Slot(SlotRef::DerefLocal(idx))

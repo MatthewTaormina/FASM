@@ -1,0 +1,389 @@
+// ============================================================
+// calculator.fasm — CLI Calculator (FASM Implementation)
+//
+// Companion to examples/calculator.c
+//
+// Demonstrates:
+//   - I/O            : SYSCALL 0 (PRINT), SYSCALL 1 (PRINT_VEC), SYSCALL 2 (READ)
+//   - String parsing : SYSCALL 4 (PARSE_INT) — mirrors C's atoi/strtol
+//   - Control flow   : LABEL, JMP, JZ, JNZ, EQ
+//   - Scoped functions: FUNC / ENDF, LOCAL, PARAM
+//   - Error handling : RESULT (OK / ERR / IS_OK / UNWRAP_OK / UNWRAP_ERR)
+//
+// Run:
+//   .\target\debug\fasm.exe run examples\calculator.fasm
+//
+// ── Syscall IDs ──────────────────────────────────────────────
+//   0 = PRINT      (key 0 = any value; adds newline)
+//   1 = PRINT_VEC  (key 0 = VEC<UINT8>; no newline)
+//   2 = READ       => $ret = VEC<UINT8>
+//   4 = PARSE_INT  (key 0 = VEC<UINT8>) => $ret = RESULT<INT32>
+//
+// ── Error codes (mirrors calculator.c) ──────────────────────
+DEFINE ERR_BAD_INPUT,   1
+DEFINE ERR_DIV_BY_ZERO, 2
+DEFINE ERR_UNKNOWN_OP,  3
+
+// ── ASCII operator constants ─────────────────────────────────
+DEFINE ASCII_PLUS,    43    // '+'
+DEFINE ASCII_MINUS,   45    // '-'
+DEFINE ASCII_STAR,    42    // '*'
+DEFINE ASCII_SLASH,   47    // '/'
+DEFINE ASCII_PERCENT, 37    // '%'
+DEFINE ASCII_Q,       113   // 'q'
+
+// ── Struct field keys ────────────────────────────────────────
+DEFINE K_VALUE, 0    // generic single-value key (PRINT / READ / PARSE_INT)
+DEFINE K_A,     0    // first operand  (Calculate args)
+DEFINE K_B,     1    // second operand (Calculate args)
+DEFINE K_OP,    2    // operator byte  (Calculate args)
+
+// ============================================================
+// FUNC Calculate
+//   Performs one arithmetic operation.
+//   Returns RESULT<INT32>:
+//     OK(result)           — success
+//     ERR(ERR_DIV_BY_ZERO) — divisor is zero
+//     ERR(ERR_UNKNOWN_OP)  — operator not recognised
+//
+// C equivalent:
+//   int calculate(int a, int b, char op, int *result) { ... }
+// ============================================================
+FUNC Calculate
+    PARAM K_A,  INT32, a,  REQUIRED
+    PARAM K_B,  INT32, b,  REQUIRED
+    PARAM K_OP, UINT8, op, REQUIRED
+
+    LOCAL 0, INT32,  a_val
+    LOCAL 1, INT32,  b_val
+    LOCAL 2, UINT8,  op_val
+    LOCAL 3, INT32,  result
+    LOCAL 4, BOOL,   cmp
+    LOCAL 5, INT32,  zero_int
+    LOCAL 6, RESULT, ret_result
+
+    GET_FIELD $args, K_A,  a_val
+    GET_FIELD $args, K_B,  b_val
+    GET_FIELD $args, K_OP, op_val
+
+    STORE 0, zero_int
+
+    EQ op_val, ASCII_PLUS,    cmp
+    JNZ cmp, CalcAdd
+
+    EQ op_val, ASCII_MINUS,   cmp
+    JNZ cmp, CalcSub
+
+    EQ op_val, ASCII_STAR,    cmp
+    JNZ cmp, CalcMul
+
+    EQ op_val, ASCII_SLASH,   cmp
+    JNZ cmp, CalcDiv
+
+    EQ op_val, ASCII_PERCENT, cmp
+    JNZ cmp, CalcMod
+
+    ERR ret_result, ERR_UNKNOWN_OP
+    RET ret_result
+
+    LABEL CalcAdd
+    ADD a_val, b_val, result
+    OK ret_result, result
+    RET ret_result
+
+    LABEL CalcSub
+    SUB a_val, b_val, result
+    OK ret_result, result
+    RET ret_result
+
+    LABEL CalcMul
+    MUL a_val, b_val, result
+    OK ret_result, result
+    RET ret_result
+
+    LABEL CalcDiv
+    EQ b_val, zero_int, cmp
+    JNZ cmp, CalcDivZero
+    DIV a_val, b_val, result
+    OK ret_result, result
+    RET ret_result
+
+    LABEL CalcMod
+    EQ b_val, zero_int, cmp
+    JNZ cmp, CalcDivZero
+    MOD a_val, b_val, result
+    OK ret_result, result
+    RET ret_result
+
+    LABEL CalcDivZero
+    ERR ret_result, ERR_DIV_BY_ZERO
+    RET ret_result
+ENDF
+
+// ============================================================
+// FUNC PrintError
+//   Prints a human-readable error message for a given code.
+//   Mirrors print_error() in calculator.c.
+// ============================================================
+FUNC PrintError
+    PARAM K_VALUE, UINT32, code, REQUIRED
+
+    LOCAL 0, UINT32, err_code
+    LOCAL 1, STRUCT, ps
+    LOCAL 2, BOOL,   cmp
+
+    GET_FIELD $args, K_VALUE, err_code
+    RESERVE 1, STRUCT, NULL
+
+    EQ err_code, ERR_BAD_INPUT, cmp
+    JNZ cmp, PrintBadInput
+
+    EQ err_code, ERR_DIV_BY_ZERO, cmp
+    JNZ cmp, PrintDivZero
+
+    EQ err_code, ERR_UNKNOWN_OP, cmp
+    JNZ cmp, PrintUnknownOp
+
+    SET_FIELD ps, 0, "Error: unknown fault code."
+    SYSCALL 0, ps
+    RET
+
+    LABEL PrintBadInput
+    SET_FIELD ps, 0, "Error: invalid number — only digits (and leading '-') allowed."
+    SYSCALL 0, ps
+    RET
+
+    LABEL PrintDivZero
+    SET_FIELD ps, 0, "Error: division by zero."
+    SYSCALL 0, ps
+    RET
+
+    LABEL PrintUnknownOp
+    SET_FIELD ps, 0, "Error: unknown operator. Use +  -  *  /  %"
+    SYSCALL 0, ps
+    RET
+ENDF
+
+// ============================================================
+// FUNC ReadLine
+//   Wraps SYSCALL 2 (READ) and returns VEC<UINT8>.
+// ============================================================
+FUNC ReadLine
+    LOCAL 0, STRUCT, rs
+    RESERVE 0, STRUCT, NULL
+    SYSCALL 2, rs
+    RET $ret
+ENDF
+
+// ============================================================
+// FUNC IsQuit
+//   Returns TRUE if the first byte of the given VEC<UINT8> is 'q'.
+// ============================================================
+FUNC IsQuit
+    PARAM K_VALUE, VEC, bytes, REQUIRED
+
+    LOCAL 0, VEC,    input
+    LOCAL 1, UINT32, len
+    LOCAL 2, UINT8,  first_byte
+    LOCAL 3, BOOL,   cmp
+    LOCAL 4, UINT32, zero_u32
+
+    GET_FIELD $args, K_VALUE, input
+    STORE 0, zero_u32
+    LEN input, len
+    EQ len, zero_u32, cmp
+    JNZ cmp, NotQuit
+
+    GET_IDX input, zero_u32, first_byte
+    EQ first_byte, ASCII_Q, cmp
+    JNZ cmp, IsQuitTrue
+
+    LABEL NotQuit
+    RET FALSE
+
+    LABEL IsQuitTrue
+    RET TRUE
+ENDF
+
+// ============================================================
+// FUNC GetFirstByte
+//   Returns the first UINT8 element of a VEC<UINT8>.
+// ============================================================
+FUNC GetFirstByte
+    PARAM K_VALUE, VEC, bytes, REQUIRED
+
+    LOCAL 0, VEC,    input
+    LOCAL 1, UINT8,  b
+    LOCAL 2, UINT32, zero_u32
+
+    GET_FIELD $args, K_VALUE, input
+    STORE 0, zero_u32
+    GET_IDX input, zero_u32, b
+    RET b
+ENDF
+
+// ============================================================
+// FUNC Main
+//   Interactive REPL loop.
+//   Mirrors the while(1) loop in main() of calculator.c.
+//
+// Key FASM↔C mappings:
+//   SYSCALL 2          ↔  scanf / fgets
+//   SYSCALL 4          ↔  atoi / strtol
+//   RESULT + IS_OK     ↔  if (err != 0) { ... }
+//   LABEL + JMP        ↔  while(1) / continue
+//   FUNC Calculate     ↔  int calculate(...)
+//   FUNC PrintError    ↔  void print_error(...)
+// ============================================================
+FUNC Main
+    LOCAL 0,  STRUCT, ps           // general-purpose print struct
+    LOCAL 1,  STRUCT, cs           // general-purpose call/syscall args
+    LOCAL 2,  VEC,    raw_a        // raw bytes from READ (operand a)
+    LOCAL 3,  VEC,    raw_b        // raw bytes from READ (operand b)
+    LOCAL 4,  VEC,    raw_op       // raw bytes from READ (operator)
+    LOCAL 5,  INT32,  val_a        // parsed integer a
+    LOCAL 6,  INT32,  val_b        // parsed integer b
+    LOCAL 7,  UINT8,  op_byte      // operator as ASCII byte
+    LOCAL 8,  RESULT, parse_res    // result from SYSCALL 4 (PARSE_INT)
+    LOCAL 9,  RESULT, calc_res     // result from Calculate
+    LOCAL 10, UINT32, err_code     // extracted error code
+    LOCAL 11, BOOL,   cmp          // scratch comparison flag
+    LOCAL 12, BOOL,   is_quit      // quit-check flag
+    LOCAL 13, INT32,  final_result // extracted calculation result
+
+    // ── Banner ──────────────────────────────────────────────
+    RESERVE 0, STRUCT, NULL
+    SET_FIELD ps, 0, "=== FASM Demo: CLI Calculator ==="
+    SYSCALL 0, ps
+    SET_FIELD ps, 0, "Supported operators: +  -  *  /  %"
+    SYSCALL 0, ps
+    SET_FIELD ps, 0, "Type 'q' to quit."
+    SYSCALL 0, ps
+    SET_FIELD ps, 0, ""
+    SYSCALL 0, ps
+
+    // ── REPL loop — mirrors while(1) { ... } in C ───────────
+    RESERVE 1, STRUCT, NULL     // cs is allocated once; reused per iteration
+
+    LABEL MainLoop
+
+    // ── Step 1: Read first operand ──────────────────────────
+    SET_FIELD ps, 0, "Enter first number: "
+    SYSCALL 1, ps
+
+    CALL ReadLine, cs
+    MOV $ret, raw_a
+
+    // Quit check
+    SET_FIELD cs, K_VALUE, raw_a
+    CALL IsQuit, cs
+    MOV $ret, is_quit
+    JNZ is_quit, MainExit
+
+    // SYSCALL 4 = PARSE_INT: key 0 = VEC<UINT8> => $ret = RESULT<INT32>
+    // C equivalent: err = parse_int(buf_a, &a);
+    SET_FIELD cs, K_VALUE, raw_a
+    SYSCALL 4, cs
+    MOV $ret, parse_res
+    IS_OK parse_res, cmp
+    JZ cmp, MainAError
+    UNWRAP_OK parse_res, val_a
+    JMP MainReadOp
+
+    LABEL MainAError
+    UNWRAP_ERR parse_res, err_code
+    SET_FIELD cs, K_VALUE, err_code
+    CALL PrintError, cs
+    JMP MainLoop
+
+    // ── Step 2: Read operator ────────────────────────────────
+    LABEL MainReadOp
+    SET_FIELD ps, 0, "Enter operator (+  -  *  /  %): "
+    SYSCALL 1, ps
+
+    CALL ReadLine, cs
+    MOV $ret, raw_op
+
+    SET_FIELD cs, K_VALUE, raw_op
+    CALL IsQuit, cs
+    MOV $ret, is_quit
+    JNZ is_quit, MainExit
+
+    // Extract first byte of operator input as the operator character
+    SET_FIELD cs, K_VALUE, raw_op
+    CALL GetFirstByte, cs
+    MOV $ret, op_byte
+
+    // ── Step 3: Read second operand ──────────────────────────
+    SET_FIELD ps, 0, "Enter second number: "
+    SYSCALL 1, ps
+
+    CALL ReadLine, cs
+    MOV $ret, raw_b
+
+    SET_FIELD cs, K_VALUE, raw_b
+    CALL IsQuit, cs
+    MOV $ret, is_quit
+    JNZ is_quit, MainExit
+
+    // SYSCALL 4 = PARSE_INT for operand b
+    // C equivalent: err = parse_int(buf_b, &b);
+    SET_FIELD cs, K_VALUE, raw_b
+    SYSCALL 4, cs
+    MOV $ret, parse_res
+    IS_OK parse_res, cmp
+    JZ cmp, MainBError
+    UNWRAP_OK parse_res, val_b
+    JMP MainCalculate
+
+    LABEL MainBError
+    UNWRAP_ERR parse_res, err_code
+    SET_FIELD cs, K_VALUE, err_code
+    CALL PrintError, cs
+    JMP MainLoop
+
+    // ── Step 4: Calculate ────────────────────────────────────
+    // C equivalent: err = calculate(a, b, op, &result);
+    LABEL MainCalculate
+    SET_FIELD cs, K_A,  val_a
+    SET_FIELD cs, K_B,  val_b
+    SET_FIELD cs, K_OP, op_byte
+    CALL Calculate, cs
+    MOV $ret, calc_res
+
+    IS_OK calc_res, cmp
+    JZ cmp, MainCalcError
+    UNWRAP_OK calc_res, final_result
+
+    // ── Step 5: Print result ─────────────────────────────────
+    // C equivalent: printf("Result: %d %c %d = %d\n", a, op, b, result);
+    SET_FIELD ps, 0, "Result: "
+    SYSCALL 1, ps
+    SET_FIELD ps, 0, val_a
+    SYSCALL 1, ps
+    SET_FIELD ps, 0, " "
+    SYSCALL 1, ps
+    SET_FIELD ps, 0, raw_op      // VEC<UINT8> renders as the character, not an int
+    SYSCALL 1, ps
+    SET_FIELD ps, 0, " "
+    SYSCALL 1, ps
+    SET_FIELD ps, 0, val_b
+    SYSCALL 1, ps
+    SET_FIELD ps, 0, " = "
+    SYSCALL 1, ps
+    SET_FIELD ps, 0, final_result
+    SYSCALL 0, ps        // SYSCALL 0 appends newline
+
+    JMP MainLoop
+
+    LABEL MainCalcError
+    UNWRAP_ERR calc_res, err_code
+    SET_FIELD cs, K_VALUE, err_code
+    CALL PrintError, cs
+    JMP MainLoop
+
+    // ── Exit ─────────────────────────────────────────────────
+    LABEL MainExit
+    SET_FIELD ps, 0, "Goodbye."
+    SYSCALL 0, ps
+ENDF

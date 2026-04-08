@@ -82,11 +82,13 @@ impl Executor {
             }
             Ok(Value::Null)
         }));
-        // 2 = READ: reads a line from stdin, returns VEC of UINT8
+        // 2 = READ: reads a line from stdin, returns VEC<UINT8>.
+        // Trailing whitespace (CR, LF, trailing spaces) is stripped so that
+        // callers never need to sanitise the result themselves.
         self.syscalls.insert(2, Box::new(|_args, _globals| {
             let mut line = String::new();
             std::io::stdin().read_line(&mut line).ok();
-            let bytes: Vec<Value> = line.trim_end_matches('\n').bytes().map(|b| Value::Uint8(b)).collect();
+            let bytes: Vec<Value> = line.trim_end().bytes().map(Value::Uint8).collect();
             Ok(Value::Vec(FasmVec(bytes)))
         }));
         // 3 = EXIT: struct key 0 = exit code
@@ -98,6 +100,63 @@ impl Executor {
                 }
             } else { 0 };
             std::process::exit(code);
+        }));
+        // 4 = PARSE_INT: struct key 0 = VEC<UINT8> of ASCII digits (optional leading '-')
+        //     Returns RESULT<INT32>: Ok(n) on success, Err(1) on invalid input.
+        //     Mirrors C's atoi / strtol. Used by calculator.fasm so it doesn't need
+        //     to implement digit parsing manually.
+        self.syscalls.insert(4, Box::new(|args, _globals| {
+            const ERR_BAD_INPUT: u32 = 1;
+            let bytes = if let Value::Struct(s) = &args {
+                match s.0.get(&0) {
+                    Some(Value::Vec(v)) => v.0.clone(),
+                    _ => return Ok(Value::Result(Box::new(FasmResult::Err(ERR_BAD_INPUT)))),
+                }
+            } else {
+                return Ok(Value::Result(Box::new(FasmResult::Err(ERR_BAD_INPUT))));
+            };
+
+            // Collect raw bytes
+            let raw: Option<Vec<u8>> = bytes.iter().map(|v| match v {
+                Value::Uint8(b) => Some(*b),
+                _ => None,
+            }).collect();
+            let raw = match raw {
+                Some(r) => r,
+                None => return Ok(Value::Result(Box::new(FasmResult::Err(ERR_BAD_INPUT)))),
+            };
+
+            // Parse to string and trim leading/trailing whitespace (CR, LF, spaces).
+            // Whitespace *within* the string is intentionally left in so it
+            // causes a parse failure (e.g. "1 2" is invalid).
+            let s = String::from_utf8_lossy(&raw);
+            let trimmed = s.trim().as_bytes().to_vec();
+            let raw = trimmed;
+
+            if raw.is_empty() {
+                return Ok(Value::Result(Box::new(FasmResult::Err(ERR_BAD_INPUT))));
+            }
+
+            // Parse sign
+            let (sign, digits) = if raw[0] == b'-' {
+                (-1i64, &raw[1..])
+            } else {
+                (1i64, &raw[..])
+            };
+
+            if digits.is_empty() {
+                return Ok(Value::Result(Box::new(FasmResult::Err(ERR_BAD_INPUT))));
+            }
+
+            let mut result: i64 = 0;
+            for &b in digits {
+                if b < b'0' || b > b'9' {
+                    return Ok(Value::Result(Box::new(FasmResult::Err(ERR_BAD_INPUT))));
+                }
+                result = result * 10 + (b - b'0') as i64;
+            }
+
+            Ok(Value::Result(Box::new(FasmResult::Ok(Value::Int32((result * sign) as i32)))))
         }));
     }
 
@@ -919,6 +978,12 @@ fn imm_to_value(imm: &Immediate) -> Value {
         Immediate::Float32(f)=> Value::Float32(*f),
         Immediate::Float64(f)=> Value::Float64(*f),
         Immediate::Null      => Value::Null,
+        // String literals expand to VEC<UINT8> using their UTF-8 byte representation.
+        // SYSCALL 0 (PRINT) and SYSCALL 1 (PRINT_VEC) both handle VEC<UINT8> as text.
+        Immediate::Str(s)    => {
+            let bytes = s.bytes().map(Value::Uint8).collect();
+            Value::Vec(FasmVec(bytes))
+        }
     }
 }
 

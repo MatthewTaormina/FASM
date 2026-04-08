@@ -71,8 +71,22 @@ Transfers data from `src` to `dst`.
 
 ### STORE value, index
 Writes a literal value into a memory slot.
-- **value**: An immediate value (e.g., `10`, `3.14`).
+- **value**: An immediate value (e.g., `10`, `3.14`, `"hello"`).
 - **index**: The destination slot.
+
+### String Literals
+FASM supports UTF-8 / ASCII string literals enclosed in double quotes, usable anywhere an immediate value is accepted (e.g. `STORE`, `SET_FIELD`, `MOV`).
+
+```fasm
+SET_FIELD my_struct, 0, "Hello, world!\n"
+STORE "error message", msg_slot
+```
+
+- At compile time the string is stored as an `Immediate::Str` in the bytecode.
+- At runtime the VM expands it into a **`VEC<UINT8>`** whose elements are the UTF-8 bytes of the string.
+- `SYSCALL 0` (PRINT) and `SYSCALL 1` (PRINT_VEC) both render `VEC<UINT8>` as text, so string literals are directly printable.
+- Because the result is a `VEC<UINT8>`, all VEC operations (`LEN`, `GET_IDX`, `PUSH`, etc.) work on string values.
+
 - **Constraint**: The `value` must be compatible with the type reserved at the `index`.
 
 ## Arithmetic
@@ -166,6 +180,7 @@ Invokes a system call asynchronously.
 | `1` | `PRINT_VEC` | Writes a `VEC` of `UINT8`/`UINT32` as a character sequence. Struct key `0` = vec. |
 | `2` | `READ` | Reads a line from standard input. Returns result via `$ret` as a `VEC` of `UINT8`. |
 | `3` | `EXIT` | Halts the VM. Struct key `0` = exit code (`INT32`). |
+| `4` | `PARSE_INT` | Parses a `VEC` of `UINT8` ASCII bytes into an `INT32`. Struct key `0` = vec. Returns `RESULT<INT32>` via `$ret`: `OK(n)` on success, `ERR(1)` if input contains non-digit characters. Supports an optional leading `'-'`. Strips trailing whitespace. |
 
 ## Control Flow
 

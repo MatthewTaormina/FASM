@@ -56,6 +56,8 @@ pub enum Immediate {
     Float32(f32),
     Float64(f64),
     Null,
+    /// A UTF-8 string literal. The VM expands this into a `VEC<UINT8>` at runtime.
+    Str(String),
 }
 
 /// A decoded FASM instruction.

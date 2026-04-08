@@ -239,6 +239,7 @@ impl Parser {
             TokenKind::Integer(n)    => Ok(AstValue::Integer(n)),
             TokenKind::HexInteger(n) => Ok(AstValue::HexInt(n)),
             TokenKind::Float(f)      => Ok(AstValue::Float(f)),
+            TokenKind::StringLit(s)  => Ok(AstValue::Str(s)),
             TokenKind::Ident(s) => match s.as_str() {
                 "NULL"  => Ok(AstValue::Null),
                 "TRUE"  => Ok(AstValue::True),
