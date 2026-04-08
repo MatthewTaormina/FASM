@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use serde::{Serialize, Deserialize};
 
 /// The runtime value type for every FASM slot.

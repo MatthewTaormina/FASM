@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use crate::value::Value;
 
 /// Local execution frame — up to 256 slots indexed by u8.
