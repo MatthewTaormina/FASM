@@ -1,0 +1,56 @@
+[server]
+host = "0.0.0.0"
+port = 8080
+
+[engine]
+max_concurrent = 128
+hot_reload      = false
+clock_hz        = 0
+
+[plugins]
+discovery_dir = "./plugins"
+
+# ─── HTTP Routes ──────────────────────────────────────────────────────────────
+
+[[routes]]
+method   = "GET"
+path     = "/api/users/:id"
+function = "GetUser"
+source   = "api/users.fasm"
+
+[[routes]]
+method   = "POST"
+path     = "/api/users"
+function = "CreateUser"
+source   = "api/users.fasm"
+
+[[routes]]
+method   = "POST"
+path     = "/api/orders"
+function = "CreateOrder"
+source   = "api/orders.fasm"
+
+[[routes]]
+method   = "GET"
+path     = "/api/products"
+function = "ListProducts"
+source   = "api/products.fasm"
+
+# ─── Shared Queues ────────────────────────────────────────────────────────────
+
+[[queues]]
+name         = "order_events"
+type         = "shared"
+max_retries  = 3
+timeout_secs = 30
+function     = "ProcessOrder"
+source       = "queue_worker.fasm"
+
+# ─── Scheduled Tasks ─────────────────────────────────────────────────────────
+
+[[schedules]]
+name            = "CleanupJob"
+cron            = "0 */5 * * * *"
+function        = "Cleanup"
+source          = "tasks/cleanup.fasm"
+misfire_policy  = "skip"

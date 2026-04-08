@@ -1,0 +1,6 @@
+[plugin]
+name        = "db_query"
+syscall_ids = [100, 101, 102]
+cmd         = "python"
+args        = ["plugins/db_query.py"]
+auto_mount  = true

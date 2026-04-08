@@ -1,0 +1,23 @@
+// queue_worker.fasm — Consumes messages from the "order_events" shared queue.
+// $args field 0 = payload JSON as VEC<UINT8>
+// $args field 1 = message_id as VEC<UINT8>
+// Syscall 0 = PRINT
+
+FUNC ProcessOrder
+    LOCAL 0, INT32, one
+
+    STORE 1, one
+
+    // Print that we received an order (payload is in $args.0)
+    SYSCALL 0, $args.0
+
+    // In a full implementation: parse payload, process order, ack via syscall 13
+    // For the demo we just return success.
+    STORE 1, $ret
+
+    RET
+ENDF
+
+FUNC Main
+    RET
+ENDF

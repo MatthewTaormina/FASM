@@ -47,9 +47,14 @@ FASM/
 │   ├── fasm-compiler/         ← Lexer → Parser → Validator → Emitter
 │   ├── fasm-vm/               ← Runtime executor, memory, Value types, fault codes
 │   ├── fasm-sandbox/          ← Isolated execution context, clock throttling, IPC sidecars
-│   └── fasm-cli/              ← `fasm` CLI binary
-│       └── src/bin/
-│           └── fibbench_native.rs  ← Native Rust fib benchmark (fair VM comparison)
+│   ├── fasm-cli/              ← `fasm` CLI binary
+│   │   └── src/bin/
+│   │       └── fibbench_native.rs  ← Native Rust fib benchmark (fair VM comparison)
+│   └── fasm-engine/           ← FaaS HTTP gateway (routes, queues, pub/sub, cron)
+│       ├── src/               ← Engine source (router, dispatcher, metrics, …)
+│       ├── tests/             ← Integration + load tests
+│       │   └── fixtures/      ← FASM handler source files used in tests
+│       └── benches/           ← Criterion benchmarks
 ├── examples/
 │   ├── fibonacci.fasm         ← Tail-call Fibonacci (fib(30) = 832040)
 │   ├── calculator.fasm        ← Interactive CLI calculator (I/O, RESULT, error handling)
@@ -244,6 +249,57 @@ cargo build --release
 .\target\release\fibbench_native.exe
 ```
 
+### FaaS Engine — HTTP throughput (debug build, Criterion)
+
+| Benchmark | Median |
+|---|---|
+| `GET /ping` round-trip | ~102 µs |
+| Concurrent ×8 | ~38K req/s |
+| Concurrent ×32 | ~60K req/s |
+| Raw VM — `Ping` (no HTTP) | ~12.5 µs |
+| Raw VM — `Fib(30)` | ~34.8 µs |
+| `GET /fib` round-trip (Fib(30)) | ~125 µs |
+
+```powershell
+cargo bench -p fasm-engine   # HTML reports → target/criterion/
+```
+
+---
+
+## FaaS Engine
+
+The `fasm-engine` crate turns the FASM VM into a fully-featured serverless runtime:
+
+```toml
+# config.toml
+[server]
+host = "127.0.0.1"
+port  = 8080
+
+[engine]
+max_concurrent = 64   # back-pressure limit
+
+[[routes]]
+method   = "GET"
+path     = "/users/:id"
+function = "GetUser"
+source   = "user.fasm"
+```
+
+```sh
+cargo run -p fasm-engine -- --config config.toml --dir ./functions
+```
+
+Exposed endpoints:
+
+| Endpoint | Description |
+|---|---|
+| `GET /metrics` | Prometheus-format counters (invocations, errors, queue depth, …) |
+| `GET /admin/queues` | Live queue state as JSON |
+| Any route | Dispatched to matching FASM handler |
+
+See [`crates/fasm-engine/README.md`](crates/fasm-engine/README.md) for the full architecture, handler convention, and performance numbers.
+
 ---
 
 ## Bytecode Format (`.fasmc`)
@@ -298,6 +354,7 @@ Each instruction: `[1 byte opcode][1 byte operand count][operands…]`
 | [`fasm-vm`](crates/fasm-vm/) | `Value` enum, `Frame`, `GlobalRegister`, `Executor`, fault codes |
 | [`fasm-sandbox`](crates/fasm-sandbox/) | `Sandbox` isolation wrapper, `ClockController`, IPC sidecar integration |
 | [`fasm-cli`](crates/fasm-cli/) | `fasm` binary — `compile` / `run` / `exec` / `check` / `bench` |
+| [`fasm-engine`](crates/fasm-engine/) | FaaS HTTP gateway — routing, queues, pub/sub, cron, metrics |
 
 ---
 

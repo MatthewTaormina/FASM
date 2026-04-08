@@ -1,0 +1,21 @@
+// cleanup.fasm — Scheduled cleanup job (fires every 5 minutes)
+// Syscall 20 = METRICS_INC
+
+FUNC Cleanup
+    LOCAL 0, STRUCT, args
+    LOCAL 1, INT32,  one
+
+    STORE 1, one
+
+    // Increment "cleanup_runs" custom metric via METRICS_INC
+    // Syscall 20 expects struct { 0: key_str, 1: delta_int }
+    STORE "cleanup_runs", args.0
+    MOV   one,            args.1
+    SYSCALL 20, args
+
+    RET
+ENDF
+
+FUNC Main
+    RET
+ENDF

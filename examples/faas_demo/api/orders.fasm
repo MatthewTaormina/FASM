@@ -1,0 +1,23 @@
+// orders.fasm — POST /api/orders
+// $args field 0 = JSON body bytes (VEC<UINT8>)
+// Demonstrates: receive body, return confirmation struct
+
+FUNC CreateOrder
+    LOCAL 0, STRUCT, resp
+    LOCAL 1, INT32,  order_id
+
+    // Assign a fake order id (in a real handler this would come from a DB plugin)
+    STORE 42, order_id
+
+    // Build response
+    STORE 201,      resp.0     // status = 201 Created
+    MOV   order_id, resp.1     // order_id field
+    STORE 1,        resp.2     // accepted = true
+
+    MOV resp, $ret
+    RET
+ENDF
+
+FUNC Main
+    RET
+ENDF
