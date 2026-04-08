@@ -17,6 +17,7 @@ dependencies = [
  "fasm-bytecode",
  "fasm-compiler",
  "fasm-sandbox",
+ "fasm-vm",
 ]
 
 [[package]]

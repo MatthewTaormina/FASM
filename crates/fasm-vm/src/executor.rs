@@ -485,12 +485,6 @@ impl Executor {
                 if cond.is_truthy() { Ok(Action::Jump(target)) } else { Ok(Action::Continue) }
             }
 
-            Opcode::Call => {
-                let func_name = self.func_name_operand(get_op!(0), program)?;
-                let args = read_val!(get_op!(1));
-                Ok(Action::CallFunc(func_name, args))
-            }
-
             Opcode::Ret => {
                 let val = if instr.operands.is_empty() {
                     Value::Null
@@ -500,12 +494,6 @@ impl Executor {
                 Ok(Action::Return(val))
             }
 
-            // Async: simplified as synchronous for MVP
-            Opcode::AsyncCall => {
-                let func_name = self.func_name_operand(get_op!(0), program)?;
-                let args = read_val!(get_op!(1));
-                Ok(Action::CallFunc(func_name, args))
-            }
             Opcode::Await => {
                 // For MVP: the future is already resolved synchronously
                 let future = read_val!(get_op!(0));

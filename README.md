@@ -1,6 +1,6 @@
 # FASM — Function-first Assembly
 
-A high-performance, sandboxed virtual machine language designed to be compiled from any language and run anywhere. FASM programs compile to compact `.fasmc` bytecode executed by a Rust-based VM with cooperative async support, memory-safe isolation, and rich collection types.
+A sandboxed, typed assembly language that compiles to compact `.fasmc` bytecode and runs on a high-performance Rust VM. FASM is designed as an embeddable execution layer: deterministic, memory-safe, and extensible through native syscall handlers and IPC sidecar plugins.
 
 ---
 
@@ -9,27 +9,27 @@ A high-performance, sandboxed virtual machine language designed to be compiled f
 **Prerequisites**: Rust toolchain (`cargo`)
 
 ```powershell
-# Build
+# Build everything
 cargo build --release
 
-# Run a FASM program
+# Run a FASM source file (compile + execute in one step)
 .\target\release\fasm.exe run examples\fibonacci.fasm
 
-# Compile to bytecode
+# Compile to bytecode, then execute the bytecode
 .\target\release\fasm.exe compile examples\fibonacci.fasm -o out.fasmc
-
-# Execute pre-compiled bytecode
 .\target\release\fasm.exe exec out.fasmc
 
 # Static validation only (no execution)
 .\target\release\fasm.exe check examples\fibonacci.fasm
+
+# Microbenchmark the VM (pure execution, I/O suppressed)
+.\target\release\fasm.exe bench out.fasmc 50000
 ```
 
 ### Install globally
 
 ```powershell
 cargo install --path crates\fasm-cli
-# Then use 'fasm' anywhere:
 fasm run examples\fibonacci.fasm
 ```
 
@@ -39,35 +39,51 @@ fasm run examples\fibonacci.fasm
 
 ```
 FASM/
-├── FASM.md                  ← Full language specification
-├── Cargo.toml               ← Workspace manifest
+├── FASM.md                    ← Full language specification
+├── Cargo.toml                 ← Workspace manifest
+├── benchmark.ps1              ← End-to-end cold-start benchmark script
 ├── crates/
-│   ├── fasm-bytecode/       ← Instruction model, opcodes, binary encode/decode
-│   ├── fasm-vm/             ← Runtime executor, memory, fault handling
-│   ├── fasm-compiler/       ← Lexer → Parser → Validator → Emitter
-│   ├── fasm-sandbox/        ← Isolated execution context, clock throttling
-│   └── fasm-cli/            ← CLI binary (compile / run / check / exec)
+│   ├── fasm-bytecode/         ← Instruction model, opcodes, binary encode/decode
+│   ├── fasm-compiler/         ← Lexer → Parser → Validator → Emitter
+│   ├── fasm-vm/               ← Runtime executor, memory, Value types, fault codes
+│   ├── fasm-sandbox/          ← Isolated execution context, clock throttling, IPC sidecars
+│   └── fasm-cli/              ← `fasm` CLI binary
+│       └── src/bin/
+│           └── fibbench_native.rs  ← Native Rust fib benchmark (fair VM comparison)
 ├── examples/
-│   └── fibonacci.fasm       ← Recursive Fibonacci example
+│   ├── fibonacci.fasm         ← Tail-call Fibonacci (fib(30) = 832040)
+│   ├── calculator.fasm        ← Interactive CLI calculator (I/O, RESULT, error handling)
+│   ├── calculator.c           ← C reference implementation of calculator
+│   ├── calculator.js          ← Node.js reference implementation
+│   ├── calculator.py          ← Python reference implementation
+│   ├── fibbench.c             ← C benchmark (matches fibonacci.fasm algorithm + N)
+│   ├── fibbench.js            ← Node.js fibonacci benchmark
+│   ├── fibbench.py            ← Python fibonacci benchmark
+│   ├── bench_sidecar.fasm     ← IPC sidecar throughput benchmark
+│   ├── sidecar.fasm           ← Sidecar plugin usage example
+│   ├── tco_test.fasm          ← Tail-call optimisation smoke test
+│   ├── my_plugin.py           ← Example Python sidecar plugin
+│   └── ping.py                ← IPC ping sidecar (used by bench_sidecar)
 └── tools/
-    └── disasm.rs            ← Debug disassembler utility
+    └── disasm.rs              ← Debug disassembler utility (standalone)
 ```
 
 ---
 
 ## Language Overview
 
-FASM (Function-first Assembly) is a typed, frame-based assembly language with:
+FASM (Function-first Assembly) is a typed, frame-based bytecode language with:
 
 - **Typed slots** — every local and global slot has a declared type (`INT32`, `STRUCT`, `VEC`, …)
-- **Struct-based calling convention** — all functions and syscalls receive a `STRUCT` argument
+- **Struct-based calling convention** — all functions and syscalls pass a `STRUCT` argument
 - **Rich collection types** — `VEC`, `STRUCT`, `STACK`, `QUEUE`, `HEAP_MIN`, `HEAP_MAX`
 - **Wrapper types** — `OPTION`, `RESULT`, `FUTURE`
-- **References** — `REF_MUT` / `REF_IMM` and `&` dereference syntax
+- **References** — `REF_MUT` / `REF_IMM` with `&` dereference syntax
 - **Transactional error handling** — `TRY` / `CATCH` / `ENDTRY` with automatic memory rollback
 - **Cooperative async** — `ASYNC CALL` returns a `FUTURE`, `AWAIT` resolves it
-- **Global register** — unlimited u32-indexed global slots shared across functions
-- **Static validation** — invalid code is rejected before execution
+- **Global register** — u32-indexed global slots shared across all function frames
+- **Tail-call optimisation** — `TAIL_CALL` recycles the current frame with zero stack growth
+- **Static validation** — invalid programs are rejected at compile time before execution
 
 ### Hello World
 
@@ -77,49 +93,55 @@ FUNC Main
 
     RESERVE 0, STRUCT, NULL
     SET_FIELD args, 0, "Hello, World!"
-    SYSCALL 0, args             // PRINT syscall
+    SYSCALL 0, args             // PRINT — prints with newline
 ENDF
 ```
 
-### Fibonacci (recursive)
+### Fibonacci (tail-call, linear time)
 
 ```fasm
 DEFINE ARG_N, 0
+DEFINE ARG_A, 1
+DEFINE ARG_B, 2
 
 FUNC Fibonacci
     PARAM ARG_N, INT32, n, REQUIRED
+    PARAM ARG_A, INT32, a, REQUIRED
+    PARAM ARG_B, INT32, b, REQUIRED
 
-    LOCAL 0, BOOL,   is_base
-    LOCAL 1, INT32,  n_val
-    LOCAL 2, INT32,  n_minus_1
-    LOCAL 3, INT32,  n_minus_2
-    LOCAL 4, INT32,  res1
-    LOCAL 5, INT32,  res2
-    LOCAL 6, INT32,  result
-    LOCAL 7, STRUCT, call_args
+    LOCAL 0, BOOL,   is_base_0
+    LOCAL 1, BOOL,   is_base_1
+    LOCAL 2, INT32,  n_val
+    LOCAL 3, INT32,  a_val
+    LOCAL 4, INT32,  b_val
+    LOCAL 5, INT32,  next_n
+    LOCAL 6, INT32,  next_b
+    LOCAL 7, STRUCT, next_args
 
     GET_FIELD $args, ARG_N, n_val
+    GET_FIELD $args, ARG_A, a_val
+    GET_FIELD $args, ARG_B, b_val
 
-    LABEL BaseCheck
-    LTE n_val, 1, is_base
-    JNZ is_base, BaseCase
+    EQ n_val, 0, is_base_0
+    JNZ is_base_0, Base0
 
-    SUB n_val, 1, n_minus_1
+    EQ n_val, 1, is_base_1
+    JNZ is_base_1, Base1
+
+    SUB n_val, 1, next_n
+    ADD a_val, b_val, next_b
+
     RESERVE 7, STRUCT, NULL
-    SET_FIELD call_args, ARG_N, n_minus_1
-    CALL Fibonacci, call_args
-    MOV $ret, res1
+    SET_FIELD next_args, ARG_N, next_n
+    SET_FIELD next_args, ARG_A, b_val
+    SET_FIELD next_args, ARG_B, next_b
+    TAIL_CALL Fibonacci, next_args
 
-    SUB n_val, 2, n_minus_2
-    SET_FIELD call_args, ARG_N, n_minus_2
-    CALL Fibonacci, call_args
-    MOV $ret, res2
+    LABEL Base0
+    RET a_val
 
-    ADD res1, res2, result
-    RET result
-
-    LABEL BaseCase
-    RET n_val
+    LABEL Base1
+    RET b_val
 ENDF
 
 FUNC Main
@@ -128,19 +150,21 @@ FUNC Main
     LOCAL 2, STRUCT, print_args
 
     RESERVE 1, STRUCT, NULL
-    SET_FIELD args, ARG_N, 19
+    SET_FIELD args, ARG_N, 30
+    SET_FIELD args, ARG_A, 0
+    SET_FIELD args, ARG_B, 1
     CALL Fibonacci, args
     MOV $ret, answer
 
     RESERVE 2, STRUCT, NULL
     SET_FIELD print_args, 0, answer
-    SYSCALL 0, print_args
+    SYSCALL 0, print_args       // prints 832040
 ENDF
 ```
 
 ---
 
-## Instruction Set Summary
+## Instruction Set
 
 | Category | Instructions |
 |---|---|
@@ -149,10 +173,10 @@ ENDF
 | Arithmetic | `ADD`, `SUB`, `MUL`, `DIV`, `MOD`, `NEG` |
 | Comparison | `EQ`, `NEQ`, `LT`, `LTE`, `GT`, `GTE` |
 | Bitwise | `AND`, `OR`, `XOR`, `NOT`, `SHL`, `SHR` |
-| Control flow | `JMP`, `JZ`, `JNZ`, `CALL`, `RET`, `HALT` |
+| Control flow | `JMP`, `JZ`, `JNZ`, `CALL`, `TAIL_CALL`, `RET`, `HALT` |
 | Async | `ASYNC CALL`, `ASYNC SYSCALL`, `AWAIT` |
 | Syscall | `SYSCALL`, `ASYNC SYSCALL` |
-| Vec/Stack/Queue | `PUSH`, `POP`, `ENQUEUE`, `DEQUEUE`, `PEEK`, `GET_IDX`, `SET_IDX`, `LEN` |
+| Vec / Stack / Queue | `PUSH`, `POP`, `ENQUEUE`, `DEQUEUE`, `PEEK`, `GET_IDX`, `SET_IDX`, `LEN` |
 | Struct | `GET_FIELD`, `SET_FIELD`, `HAS_FIELD`, `DEL_FIELD` |
 | Wrappers | `SOME`, `IS_SOME`, `UNWRAP`, `OK`, `ERR`, `IS_OK`, `UNWRAP_OK`, `UNWRAP_ERR` |
 | Cast | `CAST` |
@@ -164,22 +188,61 @@ ENDF
 
 | ID | Name | Args (struct key → value) | Returns |
 |---|---|---|---|
-| `0` | `PRINT` | `0` → any value | `NULL` |
-| `1` | `PRINT_VEC` | `0` → `VEC` of `UINT8` (no newline) | `NULL` |
-| `2` | `READ` | — | `VEC` of `UINT8` (stdin line) |
-| `3` | `EXIT` | `0` → `INT32` exit code | (terminates) |
+| `0` | `PRINT` | `0` → any value (appends newline) | `NULL` |
+| `1` | `PRINT_VEC` | `0` → `VEC<UINT8>` (no newline) | `NULL` |
+| `2` | `READ` | — | `VEC<UINT8>` (stdin line, whitespace trimmed) |
+| `3` | `EXIT` | `0` → `INT32` exit code | terminates |
+| `4` | `PARSE_INT` | `0` → `VEC<UINT8>` ASCII digits | `RESULT<INT32>` |
 
-Custom syscalls can be natively registered at runtime by the host application via `Sandbox::mount_syscall(id, handler)`.
+Custom syscalls can be registered at runtime by the host via `Sandbox::mount_syscall(id, handler)`.
 
-### IPC Sidecar Plugins
+---
 
-FASM is designed as a lightweight orchestration layer, allowing heavy computations or host API logic to be offloaded to external sub-processes (Sidecars) via high-performance IPC. The VM achieves this safely without adding FFI overhead by streaming zero-copy JSON-RPC across Standard I/O securely tied to Syscall endpoints.
+## IPC Sidecar Plugins
 
-You can mount any external executable directly to an ID using the `--plugin` CLI flag:
+FASM can offload syscalls to external processes over stdin/stdout JSON-RPC — no FFI required.
+
 ```powershell
 .\target\release\fasm.exe run script.fasm --plugin 99:python:plugin.py
 ```
-This tells the FASM engine: "Bind Syscall `#99` to the detached execution of `python plugin.py`." FASM automatically handles deep serialization of the internal sandbox memory, enabling seamless bidirectional data bridging between languages.
+
+This binds Syscall `#99` to `python plugin.py`. The sidecar receives the call arguments as JSON and returns a JSON value. Multiple syscall IDs can share a single sidecar process:
+
+```powershell
+--plugin 10,11,12:python:plugin.py
+```
+
+---
+
+## Benchmarks
+
+Tested on a single machine, release build (`cargo build --release`).
+
+### Fibonacci(30) — pure VM execution, 50,000 iterations
+
+| Runtime | Algorithm | Time/iter |
+|---|---|---|
+| Native Rust (`fibbench_native`) | Iterative accumulator | ~0.07 µs |
+| FASM VM (`fasm bench`) | Tail-call (`TAIL_CALL`) | ~74 µs |
+
+The VM overhead is ~1000x vs native — expected for an interpreted bytecode VM.  
+CPython is typically 50–100x slower than native C on equivalent workloads.
+
+### Running the benchmark
+
+```powershell
+# Build the native reference
+cargo build --release
+
+# Compile FASM fibonacci to bytecode
+.\target\release\fasm.exe compile examples\fibonacci.fasm -o fibonacci.fasmc
+
+# Run the FASM VM benchmark (50,000 iterations, I/O suppressed)
+.\target\release\fasm.exe bench fibonacci.fasmc 50000
+
+# Run the native Rust reference benchmark
+.\target\release\fibbench_native.exe
+```
 
 ---
 
@@ -191,28 +254,19 @@ This tells the FASM engine: "Bind Syscall `#99` to the detached execution of `py
 [4 bytes]  u32 — number of global-init instructions
 [N]        global-init instructions
 [4 bytes]  u32 — number of functions
-<per function>
   [2 bytes]  u16 — name length
-  [N bytes]  name (UTF-8)
+  [N bytes]  UTF-8 name
   [4 bytes]  u32 — number of params
-  <per param>
     [4 bytes]  u32 key
     [1 byte]   FasmType tag
     [1 byte]   required flag
     [2 bytes]  u16 name length
-    [N bytes]  name (UTF-8)
+    [N bytes]  UTF-8 name
   [4 bytes]  u32 — number of instructions
-  [N]        instructions (variable-width)
+  [N]        variable-width instructions
 ```
 
-Each instruction:
-```
-[1 byte]  opcode
-[1 byte]  operand count
-<per operand>
-  [1 byte]  operand kind tag
-  [N bytes] operand payload (tag-dependent)
-```
+Each instruction: `[1 byte opcode][1 byte operand count][operands…]`
 
 ---
 
@@ -225,7 +279,7 @@ Each instruction:
 | `0x03` | `FieldNotFoundFault` | STRUCT key does not exist |
 | `0x04` | `DivisionByZeroFault` | DIV or MOD with zero divisor |
 | `0x05` | `StackOverflowFault` | Call depth exceeded 512 frames |
-| `0x06` | `UnwrapFault` | UNWRAP / UNWRAP_OK / UNWRAP_ERR on wrong variant |
+| `0x06` | `UnwrapFault` | UNWRAP on wrong variant |
 | `0x07` | `WriteAccessViolation` | Write through an immutable reference |
 | `0x08` | `TypeMismatch` | Instruction applied to wrong value type |
 | `0x09` | `UndeclaredSlot` | Reading an uninitialised slot |
@@ -238,28 +292,28 @@ Each instruction:
 | Crate | Purpose |
 |---|---|
 | [`fasm-bytecode`](crates/fasm-bytecode/) | Opcodes, type tags, `Instruction`/`Operand` model, binary encode/decode |
-| [`fasm-vm`](crates/fasm-vm/) | `Value` enum, `Frame`, `GlobalRegister`, `Executor`, `Fault` codes |
 | [`fasm-compiler`](crates/fasm-compiler/) | Lexer, parser, AST, static validator, two-pass bytecode emitter |
-| [`fasm-sandbox`](crates/fasm-sandbox/) | `Sandbox` isolation wrapper, `ClockController` throttling |
-| [`fasm-cli`](crates/fasm-cli/) | `fasm` binary — compile / run / check / exec commands |
+| [`fasm-vm`](crates/fasm-vm/) | `Value` enum, `Frame`, `GlobalRegister`, `Executor`, fault codes |
+| [`fasm-sandbox`](crates/fasm-sandbox/) | `Sandbox` isolation wrapper, `ClockController`, IPC sidecar integration |
+| [`fasm-cli`](crates/fasm-cli/) | `fasm` binary — `compile` / `run` / `exec` / `check` / `bench` |
 
 ---
 
 ## Clock Throttling
 
-Sandboxes support an optional instructions-per-tick limit for controlled execution speed:
+Sandboxes support an optional instruction-rate limit for controlled execution:
 
 ```powershell
-.\fasm.exe run examples\fibonacci.fasm --clock-hz 1000
+.\target\release\fasm.exe run examples\fibonacci.fasm --clock-hz 1000
 ```
 
-Setting `--clock-hz 0` (the default) means unlimited speed.
+`--clock-hz 0` (default) means unlimited throughput.
 
 ---
 
 ## Full Language Specification
 
-See **[FASM.md](FASM.md)** for the complete language reference including all types, directives, instructions, calling conventions, async model, and error handling semantics.
+See **[FASM.md](FASM.md)** for the complete reference: all types, directives, instructions, calling conventions, async model, error handling semantics, and the bytecode encoding format.
 
 ---
 

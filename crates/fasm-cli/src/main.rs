@@ -122,9 +122,9 @@ fn cmd_bench(file: &str, extra: &[String]) {
         // We evaluate an entirely fresh Sandbox isolation wrapper per-run,
         // measuring exactly the cost of a FaaS boundary injection + runtime.
         let mut sandbox = Sandbox::new(0);
-        
-        // Suppress stdout by hijacking syscall 0/1 to do nothing? 
-        // For a pure execution bench, we let it run as-is. Better point it at non-I/O scripts.
+        // Suppress PRINT/PRINT_VEC syscalls — we only want to measure VM execution cost.
+        sandbox.mount_syscall(0, Box::new(|_, _| Ok(fasm_vm::Value::Null)));
+        sandbox.mount_syscall(1, Box::new(|_, _| Ok(fasm_vm::Value::Null)));
         if let Err(e) = sandbox.run(&program) {
             eprintln!("Runtime error during benchmark: {}", e);
             std::process::exit(1);

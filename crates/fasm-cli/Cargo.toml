@@ -11,3 +11,4 @@ path = "src/main.rs"
 fasm-bytecode  = { path = "../fasm-bytecode" }
 fasm-compiler  = { path = "../fasm-compiler" }
 fasm-sandbox   = { path = "../fasm-sandbox" }
+fasm-vm        = { path = "../fasm-vm" }
