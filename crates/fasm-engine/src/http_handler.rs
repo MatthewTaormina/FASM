@@ -13,6 +13,7 @@ use axum::{
     Json,
 };
 use serde_json::Value as JsonValue;
+use tokio::sync::RwLock;
 use fasm_vm::Value;
 use fasm_vm::value::FasmStruct;
 
@@ -27,9 +28,13 @@ use crate::{
 /// Shared state threaded through axum handlers.
 #[derive(Clone)]
 pub struct AppState {
-    pub routes:     Arc<RouteTable>,
-    pub dispatcher: TaskDispatcher,
-    pub metrics:    MetricsRegistry,
+    pub routes:      Arc<RwLock<RouteTable>>,
+    pub dispatcher:  TaskDispatcher,
+    pub metrics:     MetricsRegistry,
+    /// Optional token required on all `/api/v1/` requests.
+    pub admin_token: Option<String>,
+    /// Namespace/app/file registry for the management API.
+    pub registry:    crate::admin::AppRegistry,
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
@@ -44,8 +49,12 @@ pub async fn handle_request(
     let uri     = req.uri().clone();
     let path    = uri.path().to_string();
 
-    // match route
-    let matched = match state.routes.match_route(&method, &path) {
+    // match route — hold read lock only for the lookup, then release
+    let matched = {
+        let routes = state.routes.read().await;
+        routes.match_route(&method, &path)
+    };
+    let matched = match matched {
         Some(m) => m,
         None    => return (StatusCode::NOT_FOUND, "404 not found").into_response(),
     };

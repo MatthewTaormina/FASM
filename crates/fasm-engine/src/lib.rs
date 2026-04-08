@@ -3,6 +3,7 @@
 //! The `run_with_listener` entry point accepts an already-bound `TcpListener`
 //! so tests can bind to port 0 and obtain the OS-assigned address.
 
+pub mod admin;
 pub mod config;
 pub mod dispatcher;
 pub mod engine;
