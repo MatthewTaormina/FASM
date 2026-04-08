@@ -10,15 +10,18 @@
 //! - `run_all`: always fires a new execution regardless of in-flight count.
 //!   The dispatcher's semaphore still limits true concurrency.
 
-use std::{
-    path::Path,
-    sync::{atomic::{AtomicBool, Ordering}, Arc},
-    time::Duration,
-};
 use fasm_bytecode::Program;
 use fasm_compiler::compile_source;
-use fasm_vm::Value;
 use fasm_vm::value::FasmStruct;
+use fasm_vm::Value;
+use std::{
+    path::Path,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use crate::{
     config::{MisfirePolicy, ScheduleConfig},
@@ -60,14 +63,13 @@ pub fn spawn_schedule(
     let source_path = base_dir.join(&cfg.source);
     let src = std::fs::read_to_string(&source_path)
         .map_err(|e| format!("scheduler: cannot read {:?}: {}", source_path, e))?;
-    let program: Arc<Program> = Arc::new(
-        compile_source(&src).map_err(|e| format!("scheduler compile error: {}", e))?
-    );
+    let program: Arc<Program> =
+        Arc::new(compile_source(&src).map_err(|e| format!("scheduler compile error: {}", e))?);
 
     let interval = parse_cron_interval(&cfg.cron);
-    let name     = cfg.name.clone();
-    let func     = cfg.function.clone();
-    let policy   = cfg.misfire_policy;
+    let name = cfg.name.clone();
+    let func = cfg.function.clone();
+    let policy = cfg.misfire_policy;
 
     let handle = tokio::spawn(async move {
         tracing::info!(schedule = %name, interval = ?interval, "scheduler started");
@@ -77,9 +79,9 @@ pub fn spawn_schedule(
         loop {
             ticker.tick().await;
             let req = ExecRequest {
-                func:    func.clone(),
+                func: func.clone(),
                 program: program.clone(),
-                args:    Value::Struct(FasmStruct::default()),
+                args: Value::Struct(FasmStruct::default()),
                 trigger: "schedule".to_string(),
             };
             match dispatcher.spawn_fire_and_forget(req) {

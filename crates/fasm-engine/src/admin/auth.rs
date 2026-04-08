@@ -1,7 +1,10 @@
 //! Auth helper — checks `X-Admin-Token` header against config.
 
-use axum::{http::{HeaderMap, StatusCode}, response::{IntoResponse, Response}};
 use crate::http_handler::AppState;
+use axum::{
+    http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
+};
 
 /// Returns `Ok(())` if auth passes, `Err(Response)` (401) if it fails.
 pub fn require_auth(headers: &HeaderMap, state: &AppState) -> Result<(), Response> {

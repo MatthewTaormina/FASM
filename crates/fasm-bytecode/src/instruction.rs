@@ -76,6 +76,9 @@ impl Instruction {
     }
 
     pub fn no_args(opcode: crate::Opcode) -> Self {
-        Self { opcode, operands: vec![] }
+        Self {
+            opcode,
+            operands: vec![],
+        }
     }
 }

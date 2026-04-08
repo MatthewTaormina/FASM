@@ -7,8 +7,13 @@ pub fn tokenize(source: &str) -> Result<Vec<Token>, String> {
 
     while let Some(&ch) = chars.peek() {
         match ch {
-            '\n' => { line += 1; chars.next(); }
-            ' ' | '\t' | '\r' => { chars.next(); }
+            '\n' => {
+                line += 1;
+                chars.next();
+            }
+            ' ' | '\t' | '\r' => {
+                chars.next();
+            }
 
             '/' => {
                 chars.next();
@@ -16,16 +21,28 @@ pub fn tokenize(source: &str) -> Result<Vec<Token>, String> {
                     // Line comment — consume to end of line
                     while let Some(&c) = chars.peek() {
                         chars.next();
-                        if c == '\n' { line += 1; break; }
+                        if c == '\n' {
+                            line += 1;
+                            break;
+                        }
                     }
                 } else {
                     return Err(format!("Line {}: unexpected '/'", line));
                 }
             }
 
-            ',' => { chars.next(); tokens.push(Token::new(TokenKind::Comma, line)); }
-            '&' => { chars.next(); tokens.push(Token::new(TokenKind::Ampersand, line)); }
-            '.' => { chars.next(); tokens.push(Token::new(TokenKind::Dot, line)); }
+            ',' => {
+                chars.next();
+                tokens.push(Token::new(TokenKind::Comma, line));
+            }
+            '&' => {
+                chars.next();
+                tokens.push(Token::new(TokenKind::Ampersand, line));
+            }
+            '.' => {
+                chars.next();
+                tokens.push(Token::new(TokenKind::Dot, line));
+            }
 
             '"' => {
                 chars.next();
@@ -57,7 +74,9 @@ pub fn tokenize(source: &str) -> Result<Vec<Token>, String> {
                 }
 
                 let mut num = String::new();
-                if negative { num.push('-'); }
+                if negative {
+                    num.push('-');
+                }
 
                 // Check for hex
                 if chars.peek() == Some(&'0') {
@@ -67,7 +86,12 @@ pub fn tokenize(source: &str) -> Result<Vec<Token>, String> {
                         chars.next();
                         let mut hex = String::new();
                         while let Some(&c) = chars.peek() {
-                            if c.is_ascii_hexdigit() { hex.push(c); chars.next(); } else { break; }
+                            if c.is_ascii_hexdigit() {
+                                hex.push(c);
+                                chars.next();
+                            } else {
+                                break;
+                            }
                         }
                         let val = u64::from_str_radix(&hex, 16)
                             .map_err(|_| format!("Line {}: invalid hex literal", line))?;
@@ -77,20 +101,33 @@ pub fn tokenize(source: &str) -> Result<Vec<Token>, String> {
                 }
 
                 while let Some(&c) = chars.peek() {
-                    if c.is_ascii_digit() { num.push(c); chars.next(); }
-                    else { break; }
+                    if c.is_ascii_digit() {
+                        num.push(c);
+                        chars.next();
+                    } else {
+                        break;
+                    }
                 }
 
                 if chars.peek() == Some(&'.') {
                     num.push('.');
                     chars.next();
                     while let Some(&c) = chars.peek() {
-                        if c.is_ascii_digit() { num.push(c); chars.next(); } else { break; }
+                        if c.is_ascii_digit() {
+                            num.push(c);
+                            chars.next();
+                        } else {
+                            break;
+                        }
                     }
-                    let f: f64 = num.parse().map_err(|_| format!("Line {}: bad float", line))?;
+                    let f: f64 = num
+                        .parse()
+                        .map_err(|_| format!("Line {}: bad float", line))?;
                     tokens.push(Token::new(TokenKind::Float(f), line));
                 } else {
-                    let i: i64 = num.parse().map_err(|_| format!("Line {}: bad integer '{}'", line, num))?;
+                    let i: i64 = num
+                        .parse()
+                        .map_err(|_| format!("Line {}: bad integer '{}'", line, num))?;
                     tokens.push(Token::new(TokenKind::Integer(i), line));
                 }
             }
@@ -99,8 +136,11 @@ pub fn tokenize(source: &str) -> Result<Vec<Token>, String> {
                 let mut ident = String::new();
                 while let Some(&c) = chars.peek() {
                     if c.is_alphanumeric() || c == '_' || c == '$' {
-                        ident.push(c); chars.next();
-                    } else { break; }
+                        ident.push(c);
+                        chars.next();
+                    } else {
+                        break;
+                    }
                 }
                 tokens.push(Token::new(TokenKind::Ident(ident), line));
             }

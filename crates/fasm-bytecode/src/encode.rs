@@ -1,3 +1,5 @@
+use crate::instruction::{BuiltIn, Immediate, Operand, SlotRef};
+use crate::types::FasmType;
 /// Binary serialisation / deserialisation for FASM programs.
 ///
 /// File format:
@@ -25,46 +27,43 @@
 ///   <foreach operand>
 ///     [1 byte] operand kind tag
 ///     [N bytes] operand payload
-
-use crate::{Instruction, Opcode, Program, FunctionDef, ParamDescriptor};
-use crate::instruction::{Operand, SlotRef, BuiltIn, Immediate};
-use crate::types::FasmType;
+use crate::{FunctionDef, Instruction, Opcode, ParamDescriptor, Program};
 
 pub const MAGIC: &[u8; 4] = b"FSMC";
 
 // ── Operand kind tags ────────────────────────────────────────────────────────
-const TAG_LOCAL: u8       = 0x00;
-const TAG_GLOBAL: u8      = 0x01;
-const TAG_DEREF_L: u8     = 0x02;
-const TAG_DEREF_G: u8     = 0x03;
-const TAG_TMP: u8         = 0x04;
-const TAG_DEREF_TMP: u8   = 0x05;
-const TAG_BUILTIN: u8     = 0x06;
-const TAG_IMM_BOOL: u8    = 0x10;
-const TAG_IMM_I8: u8      = 0x11;
-const TAG_IMM_I16: u8     = 0x12;
-const TAG_IMM_I32: u8     = 0x13;
-const TAG_IMM_I64: u8     = 0x14;
-const TAG_IMM_U8: u8      = 0x15;
-const TAG_IMM_U16: u8     = 0x16;
-const TAG_IMM_U32: u8     = 0x17;
-const TAG_IMM_U64: u8     = 0x18;
-const TAG_IMM_F32: u8     = 0x19;
-const TAG_IMM_F64: u8     = 0x1A;
-const TAG_IMM_NULL: u8    = 0x1B;
-const TAG_IMM_STR: u8     = 0x1C;  // UTF-8 string literal → VEC<UINT8> at runtime
-const TAG_FUNC_REF: u8    = 0x20;
-const TAG_LABEL: u8       = 0x21;
-const TAG_SYSCALL_ID: u8  = 0x22;
-const TAG_TYPE: u8        = 0x23;
-const TAG_KEY: u8         = 0x24;
-const TAG_REQUIRED: u8    = 0x25;
+const TAG_LOCAL: u8 = 0x00;
+const TAG_GLOBAL: u8 = 0x01;
+const TAG_DEREF_L: u8 = 0x02;
+const TAG_DEREF_G: u8 = 0x03;
+const TAG_TMP: u8 = 0x04;
+const TAG_DEREF_TMP: u8 = 0x05;
+const TAG_BUILTIN: u8 = 0x06;
+const TAG_IMM_BOOL: u8 = 0x10;
+const TAG_IMM_I8: u8 = 0x11;
+const TAG_IMM_I16: u8 = 0x12;
+const TAG_IMM_I32: u8 = 0x13;
+const TAG_IMM_I64: u8 = 0x14;
+const TAG_IMM_U8: u8 = 0x15;
+const TAG_IMM_U16: u8 = 0x16;
+const TAG_IMM_U32: u8 = 0x17;
+const TAG_IMM_U64: u8 = 0x18;
+const TAG_IMM_F32: u8 = 0x19;
+const TAG_IMM_F64: u8 = 0x1A;
+const TAG_IMM_NULL: u8 = 0x1B;
+const TAG_IMM_STR: u8 = 0x1C; // UTF-8 string literal → VEC<UINT8> at runtime
+const TAG_FUNC_REF: u8 = 0x20;
+const TAG_LABEL: u8 = 0x21;
+const TAG_SYSCALL_ID: u8 = 0x22;
+const TAG_TYPE: u8 = 0x23;
+const TAG_KEY: u8 = 0x24;
+const TAG_REQUIRED: u8 = 0x25;
 
 // ── Built-in sub-tags ────────────────────────────────────────────────────────
-const BUILTIN_ARGS: u8        = 0x00;
-const BUILTIN_RET: u8         = 0x01;
-const BUILTIN_FAULT_IDX: u8   = 0x02;
-const BUILTIN_FAULT_CODE: u8  = 0x03;
+const BUILTIN_ARGS: u8 = 0x00;
+const BUILTIN_RET: u8 = 0x01;
+const BUILTIN_FAULT_IDX: u8 = 0x02;
+const BUILTIN_FAULT_CODE: u8 = 0x03;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Encode
@@ -117,43 +116,115 @@ fn encode_instruction(instr: &Instruction, out: &mut Vec<u8>) {
 fn encode_operand(op: &Operand, out: &mut Vec<u8>) {
     match op {
         Operand::Slot(s) => match s {
-            SlotRef::Local(i)       => { out.push(TAG_LOCAL);   out.push(*i); }
-            SlotRef::Global(i)      => { out.push(TAG_GLOBAL);  out.extend_from_slice(&i.to_le_bytes()); }
-            SlotRef::Tmp(i)         => { out.push(TAG_TMP);     out.push(*i); }
-            SlotRef::DerefLocal(i)  => { out.push(TAG_DEREF_L); out.push(*i); }
-            SlotRef::DerefGlobal(i) => { out.push(TAG_DEREF_G); out.extend_from_slice(&i.to_le_bytes()); }
-            SlotRef::DerefTmp(i)    => { out.push(TAG_DEREF_TMP); out.push(*i); }
+            SlotRef::Local(i) => {
+                out.push(TAG_LOCAL);
+                out.push(*i);
+            }
+            SlotRef::Global(i) => {
+                out.push(TAG_GLOBAL);
+                out.extend_from_slice(&i.to_le_bytes());
+            }
+            SlotRef::Tmp(i) => {
+                out.push(TAG_TMP);
+                out.push(*i);
+            }
+            SlotRef::DerefLocal(i) => {
+                out.push(TAG_DEREF_L);
+                out.push(*i);
+            }
+            SlotRef::DerefGlobal(i) => {
+                out.push(TAG_DEREF_G);
+                out.extend_from_slice(&i.to_le_bytes());
+            }
+            SlotRef::DerefTmp(i) => {
+                out.push(TAG_DEREF_TMP);
+                out.push(*i);
+            }
             SlotRef::BuiltIn(b) => {
                 out.push(TAG_BUILTIN);
                 out.push(match b {
-                    BuiltIn::Args       => BUILTIN_ARGS,
-                    BuiltIn::Ret        => BUILTIN_RET,
+                    BuiltIn::Args => BUILTIN_ARGS,
+                    BuiltIn::Ret => BUILTIN_RET,
                     BuiltIn::FaultIndex => BUILTIN_FAULT_IDX,
-                    BuiltIn::FaultCode  => BUILTIN_FAULT_CODE,
+                    BuiltIn::FaultCode => BUILTIN_FAULT_CODE,
                 });
             }
         },
         Operand::Imm(imm) => match imm {
-            Immediate::Bool(v)    => { out.push(TAG_IMM_BOOL); out.push(*v as u8); }
-            Immediate::Int8(v)    => { out.push(TAG_IMM_I8);   out.push(*v as u8); }
-            Immediate::Int16(v)   => { out.push(TAG_IMM_I16);  out.extend_from_slice(&v.to_le_bytes()); }
-            Immediate::Int32(v)   => { out.push(TAG_IMM_I32);  out.extend_from_slice(&v.to_le_bytes()); }
-            Immediate::Int64(v)   => { out.push(TAG_IMM_I64);  out.extend_from_slice(&v.to_le_bytes()); }
-            Immediate::Uint8(v)   => { out.push(TAG_IMM_U8);   out.push(*v); }
-            Immediate::Uint16(v)  => { out.push(TAG_IMM_U16);  out.extend_from_slice(&v.to_le_bytes()); }
-            Immediate::Uint32(v)  => { out.push(TAG_IMM_U32);  out.extend_from_slice(&v.to_le_bytes()); }
-            Immediate::Uint64(v)  => { out.push(TAG_IMM_U64);  out.extend_from_slice(&v.to_le_bytes()); }
-            Immediate::Float32(v) => { out.push(TAG_IMM_F32);  out.extend_from_slice(&v.to_le_bytes()); }
-            Immediate::Float64(v) => { out.push(TAG_IMM_F64);  out.extend_from_slice(&v.to_le_bytes()); }
-            Immediate::Null       =>   out.push(TAG_IMM_NULL),
-            Immediate::Str(s)     => { out.push(TAG_IMM_STR); encode_string(s, out); }
+            Immediate::Bool(v) => {
+                out.push(TAG_IMM_BOOL);
+                out.push(*v as u8);
+            }
+            Immediate::Int8(v) => {
+                out.push(TAG_IMM_I8);
+                out.push(*v as u8);
+            }
+            Immediate::Int16(v) => {
+                out.push(TAG_IMM_I16);
+                out.extend_from_slice(&v.to_le_bytes());
+            }
+            Immediate::Int32(v) => {
+                out.push(TAG_IMM_I32);
+                out.extend_from_slice(&v.to_le_bytes());
+            }
+            Immediate::Int64(v) => {
+                out.push(TAG_IMM_I64);
+                out.extend_from_slice(&v.to_le_bytes());
+            }
+            Immediate::Uint8(v) => {
+                out.push(TAG_IMM_U8);
+                out.push(*v);
+            }
+            Immediate::Uint16(v) => {
+                out.push(TAG_IMM_U16);
+                out.extend_from_slice(&v.to_le_bytes());
+            }
+            Immediate::Uint32(v) => {
+                out.push(TAG_IMM_U32);
+                out.extend_from_slice(&v.to_le_bytes());
+            }
+            Immediate::Uint64(v) => {
+                out.push(TAG_IMM_U64);
+                out.extend_from_slice(&v.to_le_bytes());
+            }
+            Immediate::Float32(v) => {
+                out.push(TAG_IMM_F32);
+                out.extend_from_slice(&v.to_le_bytes());
+            }
+            Immediate::Float64(v) => {
+                out.push(TAG_IMM_F64);
+                out.extend_from_slice(&v.to_le_bytes());
+            }
+            Immediate::Null => out.push(TAG_IMM_NULL),
+            Immediate::Str(s) => {
+                out.push(TAG_IMM_STR);
+                encode_string(s, out);
+            }
         },
-        Operand::FuncRef(i)   => { out.push(TAG_FUNC_REF);   out.extend_from_slice(&i.to_le_bytes()); }
-        Operand::LabelTarget(a) => { out.push(TAG_LABEL);    out.extend_from_slice(&a.to_le_bytes()); }
-        Operand::SyscallId(i) => { out.push(TAG_SYSCALL_ID); out.extend_from_slice(&i.to_le_bytes()); }
-        Operand::Type(t)      => { out.push(TAG_TYPE);        out.push(*t as u8); }
-        Operand::Key(k)       => { out.push(TAG_KEY);         out.extend_from_slice(&k.to_le_bytes()); }
-        Operand::Required(r)  => { out.push(TAG_REQUIRED);    out.push(*r as u8); }
+        Operand::FuncRef(i) => {
+            out.push(TAG_FUNC_REF);
+            out.extend_from_slice(&i.to_le_bytes());
+        }
+        Operand::LabelTarget(a) => {
+            out.push(TAG_LABEL);
+            out.extend_from_slice(&a.to_le_bytes());
+        }
+        Operand::SyscallId(i) => {
+            out.push(TAG_SYSCALL_ID);
+            out.extend_from_slice(&i.to_le_bytes());
+        }
+        Operand::Type(t) => {
+            out.push(TAG_TYPE);
+            out.push(*t as u8);
+        }
+        Operand::Key(k) => {
+            out.push(TAG_KEY);
+            out.extend_from_slice(&k.to_le_bytes());
+        }
+        Operand::Required(r) => {
+            out.push(TAG_REQUIRED);
+            out.push(*r as u8);
+        }
     }
 }
 
@@ -182,18 +253,27 @@ pub fn decode_program(data: &[u8]) -> Result<Program, String> {
         let nparams = c.read_u32()?;
         let mut params = Vec::new();
         for _ in 0..nparams {
-            let key  = c.read_u32()?;
-            let t    = FasmType::try_from(c.read_u8()?)?;
-            let req  = c.read_u8()? != 0;
+            let key = c.read_u32()?;
+            let t = FasmType::try_from(c.read_u8()?)?;
+            let req = c.read_u8()? != 0;
             let pname = c.read_string()?;
-            params.push(ParamDescriptor { key, fasm_type: t, name: pname, required: req });
+            params.push(ParamDescriptor {
+                key,
+                fasm_type: t,
+                name: pname,
+                required: req,
+            });
         }
         let ninstrs = c.read_u32()?;
         let mut instructions = Vec::new();
         for _ in 0..ninstrs {
             instructions.push(decode_instruction(&mut c)?);
         }
-        prog.functions.push(FunctionDef { name, params, instructions });
+        prog.functions.push(FunctionDef {
+            name,
+            params,
+            instructions,
+        });
     }
     Ok(prog)
 }
@@ -211,37 +291,37 @@ fn decode_instruction(c: &mut Cursor) -> Result<Instruction, String> {
 fn decode_operand(c: &mut Cursor) -> Result<Operand, String> {
     let tag = c.read_u8()?;
     match tag {
-        TAG_LOCAL    => Ok(Operand::Slot(SlotRef::Local(c.read_u8()?))),
-        TAG_GLOBAL   => Ok(Operand::Slot(SlotRef::Global(c.read_u16()?))),
-        TAG_TMP      => Ok(Operand::Slot(SlotRef::Tmp(c.read_u8()?))),
-        TAG_DEREF_L  => Ok(Operand::Slot(SlotRef::DerefLocal(c.read_u8()?))),
-        TAG_DEREF_G  => Ok(Operand::Slot(SlotRef::DerefGlobal(c.read_u16()?))),
-        TAG_DEREF_TMP=> Ok(Operand::Slot(SlotRef::DerefTmp(c.read_u8()?))),
-        TAG_BUILTIN  => Ok(Operand::Slot(SlotRef::BuiltIn(match c.read_u8()? {
-            BUILTIN_ARGS       => BuiltIn::Args,
-            BUILTIN_RET        => BuiltIn::Ret,
-            BUILTIN_FAULT_IDX  => BuiltIn::FaultIndex,
+        TAG_LOCAL => Ok(Operand::Slot(SlotRef::Local(c.read_u8()?))),
+        TAG_GLOBAL => Ok(Operand::Slot(SlotRef::Global(c.read_u16()?))),
+        TAG_TMP => Ok(Operand::Slot(SlotRef::Tmp(c.read_u8()?))),
+        TAG_DEREF_L => Ok(Operand::Slot(SlotRef::DerefLocal(c.read_u8()?))),
+        TAG_DEREF_G => Ok(Operand::Slot(SlotRef::DerefGlobal(c.read_u16()?))),
+        TAG_DEREF_TMP => Ok(Operand::Slot(SlotRef::DerefTmp(c.read_u8()?))),
+        TAG_BUILTIN => Ok(Operand::Slot(SlotRef::BuiltIn(match c.read_u8()? {
+            BUILTIN_ARGS => BuiltIn::Args,
+            BUILTIN_RET => BuiltIn::Ret,
+            BUILTIN_FAULT_IDX => BuiltIn::FaultIndex,
             BUILTIN_FAULT_CODE => BuiltIn::FaultCode,
             b => return Err(format!("Unknown builtin tag 0x{:02X}", b)),
         }))),
         TAG_IMM_BOOL => Ok(Operand::Imm(Immediate::Bool(c.read_u8()? != 0))),
-        TAG_IMM_I8   => Ok(Operand::Imm(Immediate::Int8(c.read_u8()? as i8))),
-        TAG_IMM_I16  => Ok(Operand::Imm(Immediate::Int16(c.read_i16()?))),
-        TAG_IMM_I32  => Ok(Operand::Imm(Immediate::Int32(c.read_i32()?))),
-        TAG_IMM_I64  => Ok(Operand::Imm(Immediate::Int64(c.read_i64()?))),
-        TAG_IMM_U8   => Ok(Operand::Imm(Immediate::Uint8(c.read_u8()?))),
-        TAG_IMM_U16  => Ok(Operand::Imm(Immediate::Uint16(c.read_u16()?))),
-        TAG_IMM_U32  => Ok(Operand::Imm(Immediate::Uint32(c.read_u32()?))),
-        TAG_IMM_U64  => Ok(Operand::Imm(Immediate::Uint64(c.read_u64()?))),
-        TAG_IMM_F32  => Ok(Operand::Imm(Immediate::Float32(c.read_f32()?))),
-        TAG_IMM_F64  => Ok(Operand::Imm(Immediate::Float64(c.read_f64()?))),
+        TAG_IMM_I8 => Ok(Operand::Imm(Immediate::Int8(c.read_u8()? as i8))),
+        TAG_IMM_I16 => Ok(Operand::Imm(Immediate::Int16(c.read_i16()?))),
+        TAG_IMM_I32 => Ok(Operand::Imm(Immediate::Int32(c.read_i32()?))),
+        TAG_IMM_I64 => Ok(Operand::Imm(Immediate::Int64(c.read_i64()?))),
+        TAG_IMM_U8 => Ok(Operand::Imm(Immediate::Uint8(c.read_u8()?))),
+        TAG_IMM_U16 => Ok(Operand::Imm(Immediate::Uint16(c.read_u16()?))),
+        TAG_IMM_U32 => Ok(Operand::Imm(Immediate::Uint32(c.read_u32()?))),
+        TAG_IMM_U64 => Ok(Operand::Imm(Immediate::Uint64(c.read_u64()?))),
+        TAG_IMM_F32 => Ok(Operand::Imm(Immediate::Float32(c.read_f32()?))),
+        TAG_IMM_F64 => Ok(Operand::Imm(Immediate::Float64(c.read_f64()?))),
         TAG_IMM_NULL => Ok(Operand::Imm(Immediate::Null)),
-        TAG_IMM_STR  => Ok(Operand::Imm(Immediate::Str(c.read_string()?))),
+        TAG_IMM_STR => Ok(Operand::Imm(Immediate::Str(c.read_string()?))),
         TAG_FUNC_REF => Ok(Operand::FuncRef(c.read_u16()?)),
-        TAG_LABEL    => Ok(Operand::LabelTarget(c.read_u32()?)),
+        TAG_LABEL => Ok(Operand::LabelTarget(c.read_u32()?)),
         TAG_SYSCALL_ID => Ok(Operand::SyscallId(c.read_i32()?)),
-        TAG_TYPE     => Ok(Operand::Type(FasmType::try_from(c.read_u8()?)?)),
-        TAG_KEY      => Ok(Operand::Key(c.read_u32()?)),
+        TAG_TYPE => Ok(Operand::Type(FasmType::try_from(c.read_u8()?)?)),
+        TAG_KEY => Ok(Operand::Key(c.read_u32()?)),
         TAG_REQUIRED => Ok(Operand::Required(c.read_u8()? != 0)),
         _ => Err(format!("Unknown operand tag 0x{:02X}", tag)),
     }
@@ -257,11 +337,17 @@ struct Cursor<'a> {
 }
 
 impl<'a> Cursor<'a> {
-    fn new(data: &'a [u8]) -> Self { Self { data, pos: 0 } }
+    fn new(data: &'a [u8]) -> Self {
+        Self { data, pos: 0 }
+    }
 
     fn read_u8(&mut self) -> Result<u8, String> {
-        if self.pos >= self.data.len() { return Err("Unexpected EOF".into()); }
-        let v = self.data[self.pos]; self.pos += 1; Ok(v)
+        if self.pos >= self.data.len() {
+            return Err("Unexpected EOF".into());
+        }
+        let v = self.data[self.pos];
+        self.pos += 1;
+        Ok(v)
     }
     fn read_u16(&mut self) -> Result<u16, String> {
         let b = self.read_bytes(2)?;
@@ -275,9 +361,15 @@ impl<'a> Cursor<'a> {
         let b = self.read_bytes(8)?;
         Ok(u64::from_le_bytes(b.try_into().unwrap()))
     }
-    fn read_i16(&mut self) -> Result<i16, String> { Ok(self.read_u16()? as i16) }
-    fn read_i32(&mut self) -> Result<i32, String> { Ok(self.read_u32()? as i32) }
-    fn read_i64(&mut self) -> Result<i64, String> { Ok(self.read_u64()? as i64) }
+    fn read_i16(&mut self) -> Result<i16, String> {
+        Ok(self.read_u16()? as i16)
+    }
+    fn read_i32(&mut self) -> Result<i32, String> {
+        Ok(self.read_u32()? as i32)
+    }
+    fn read_i64(&mut self) -> Result<i64, String> {
+        Ok(self.read_u64()? as i64)
+    }
     fn read_f32(&mut self) -> Result<f32, String> {
         let b = self.read_bytes(4)?;
         Ok(f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
@@ -287,7 +379,9 @@ impl<'a> Cursor<'a> {
         Ok(f64::from_le_bytes(b.try_into().unwrap()))
     }
     fn read_bytes(&mut self, n: usize) -> Result<&[u8], String> {
-        if self.pos + n > self.data.len() { return Err("Unexpected EOF".into()); }
+        if self.pos + n > self.data.len() {
+            return Err("Unexpected EOF".into());
+        }
         let s = &self.data[self.pos..self.pos + n];
         self.pos += n;
         Ok(s)

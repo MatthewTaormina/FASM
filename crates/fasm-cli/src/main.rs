@@ -1,7 +1,7 @@
-use std::{env, fs, path::Path};
-use fasm_bytecode::{encode_program, decode_program};
+use fasm_bytecode::{decode_program, encode_program};
 use fasm_compiler::compile_source;
 use fasm_sandbox::Sandbox;
+use std::{env, fs, path::Path};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -11,16 +11,19 @@ fn main() {
     }
 
     let command = args[1].as_str();
-    let file    = &args[2];
+    let file = &args[2];
 
     match command {
         "compile" => cmd_compile(file, &args[3..]),
-        "run"     => cmd_run(file, &args[3..]),
-        "check"   => cmd_check(file),
-        "exec"    => cmd_exec(file, &args[3..]),
-        "bench"   => cmd_bench(file, &args[3..]),
+        "run" => cmd_run(file, &args[3..]),
+        "check" => cmd_check(file),
+        "exec" => cmd_exec(file, &args[3..]),
+        "bench" => cmd_bench(file, &args[3..]),
         _ => {
-            eprintln!("Unknown command '{}'. Use compile, run, check, exec, or bench.", command);
+            eprintln!(
+                "Unknown command '{}'. Use compile, run, check, exec, or bench.",
+                command
+            );
             print_usage();
             std::process::exit(1);
         }
@@ -32,14 +35,21 @@ fn cmd_compile(file: &str, extra: &[String]) {
     let source = read_file(file);
     let program = match compile_source(&source) {
         Ok(p) => p,
-        Err(e) => { eprintln!("Compile error: {}", e); std::process::exit(1); }
+        Err(e) => {
+            eprintln!("Compile error: {}", e);
+            std::process::exit(1);
+        }
     };
 
-    let out_path = extra.windows(2)
+    let out_path = extra
+        .windows(2)
         .find(|w| w[0] == "-o")
         .map(|w| w[1].clone())
         .unwrap_or_else(|| {
-            Path::new(file).with_extension("fasmc").to_string_lossy().into_owned()
+            Path::new(file)
+                .with_extension("fasmc")
+                .to_string_lossy()
+                .into_owned()
         });
 
     let bytes = encode_program(&program);
@@ -52,17 +62,25 @@ fn cmd_run(file: &str, extra: &[String]) {
     let source = read_file(file);
     let program = match compile_source(&source) {
         Ok(p) => p,
-        Err(e) => { eprintln!("Compile error: {}", e); std::process::exit(1); }
+        Err(e) => {
+            eprintln!("Compile error: {}", e);
+            std::process::exit(1);
+        }
     };
 
     let clock_hz = parse_clock_hz(extra);
     let mut sandbox = Sandbox::new(0);
-    if let Some(hz) = clock_hz { sandbox.set_clock_hz(hz); }
+    if let Some(hz) = clock_hz {
+        sandbox.set_clock_hz(hz);
+    }
     parse_plugins(extra, &mut sandbox);
 
     match sandbox.run(&program) {
         Ok(_) => {}
-        Err(e) => { eprintln!("Runtime error: {}", e); std::process::exit(1); }
+        Err(e) => {
+            eprintln!("Runtime error: {}", e);
+            std::process::exit(1);
+        }
     }
 }
 
@@ -71,8 +89,11 @@ fn cmd_check(file: &str) {
     let source = read_file(file);
     match compile_source(&source) {
         Ok(prog) => {
-            println!("OK — {} function(s), {} global init(s)",
-                prog.functions.len(), prog.global_inits.len());
+            println!(
+                "OK — {} function(s), {} global init(s)",
+                prog.functions.len(),
+                prog.global_inits.len()
+            );
         }
         Err(e) => {
             eprintln!("Validation error: {}", e);
@@ -89,17 +110,25 @@ fn cmd_exec(file: &str, extra: &[String]) {
     });
     let program = match decode_program(&bytes) {
         Ok(p) => p,
-        Err(e) => { eprintln!("Decode error: {}", e); std::process::exit(1); }
+        Err(e) => {
+            eprintln!("Decode error: {}", e);
+            std::process::exit(1);
+        }
     };
 
     let clock_hz = parse_clock_hz(extra);
     let mut sandbox = Sandbox::new(0);
-    if let Some(hz) = clock_hz { sandbox.set_clock_hz(hz); }
+    if let Some(hz) = clock_hz {
+        sandbox.set_clock_hz(hz);
+    }
     parse_plugins(extra, &mut sandbox);
 
     match sandbox.run(&program) {
         Ok(_) => {}
-        Err(e) => { eprintln!("Runtime error: {}", e); std::process::exit(1); }
+        Err(e) => {
+            eprintln!("Runtime error: {}", e);
+            std::process::exit(1);
+        }
     }
 }
 
@@ -111,11 +140,17 @@ fn cmd_bench(file: &str, extra: &[String]) {
     });
     let program = match decode_program(&bytes) {
         Ok(p) => p,
-        Err(e) => { eprintln!("Decode error: {}", e); std::process::exit(1); }
+        Err(e) => {
+            eprintln!("Decode error: {}", e);
+            std::process::exit(1);
+        }
     };
 
     let iterations: usize = extra.get(0).and_then(|s| s.parse().ok()).unwrap_or(10_000);
-    println!("Benchmarking '{}' with pre-loaded VM across {} iterations...", file, iterations);
+    println!(
+        "Benchmarking '{}' with pre-loaded VM across {} iterations...",
+        file, iterations
+    );
 
     let start = std::time::Instant::now();
     for _ in 0..iterations {
@@ -131,7 +166,7 @@ fn cmd_bench(file: &str, extra: &[String]) {
         }
     }
     let elapsed = start.elapsed();
-    
+
     let total_ms = elapsed.as_secs_f64() * 1000.0;
     let avg_us = (elapsed.as_micros() as f64) / (iterations as f64);
     println!("--- Benchmark complete ---");

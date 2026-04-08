@@ -1,5 +1,5 @@
-use crate::token::{Token, TokenKind};
 use crate::ast::*;
+use crate::token::{Token, TokenKind};
 use fasm_bytecode::types::FasmType;
 
 pub fn parse(tokens: Vec<Token>) -> Result<ProgramAst, String> {
@@ -13,30 +13,44 @@ struct Parser {
 }
 
 impl Parser {
-    fn new(tokens: Vec<Token>) -> Self { Self { tokens, pos: 0 } }
+    fn new(tokens: Vec<Token>) -> Self {
+        Self { tokens, pos: 0 }
+    }
 
-    fn peek(&self) -> &Token { &self.tokens[self.pos] }
+    fn peek(&self) -> &Token {
+        &self.tokens[self.pos]
+    }
 
     fn advance(&mut self) -> &Token {
         let t = &self.tokens[self.pos];
-        if self.pos + 1 < self.tokens.len() { self.pos += 1; }
+        if self.pos + 1 < self.tokens.len() {
+            self.pos += 1;
+        }
         t
     }
 
-    fn line(&self) -> usize { self.peek().line }
+    fn line(&self) -> usize {
+        self.peek().line
+    }
 
     fn expect_ident(&mut self) -> Result<String, String> {
         let t = self.advance().clone();
         match t.kind {
             TokenKind::Ident(s) => Ok(s),
-            _ => Err(format!("Line {}: expected identifier, got {:?}", t.line, t.kind)),
+            _ => Err(format!(
+                "Line {}: expected identifier, got {:?}",
+                t.line, t.kind
+            )),
         }
     }
 
     fn expect_comma(&mut self) -> Result<(), String> {
         let t = self.advance().clone();
-        if t.kind == TokenKind::Comma { Ok(()) }
-        else { Err(format!("Line {}: expected ',', got {:?}", t.line, t.kind)) }
+        if t.kind == TokenKind::Comma {
+            Ok(())
+        } else {
+            Err(format!("Line {}: expected ',', got {:?}", t.line, t.kind))
+        }
     }
 
     fn parse_program(&mut self) -> Result<ProgramAst, String> {
@@ -45,39 +59,65 @@ impl Parser {
         while self.peek().kind != TokenKind::Eof {
             let kw = match &self.peek().kind {
                 TokenKind::Ident(s) => s.clone(),
-                _ => return Err(format!("Line {}: unexpected token {:?}", self.line(), self.peek().kind)),
+                _ => {
+                    return Err(format!(
+                        "Line {}: unexpected token {:?}",
+                        self.line(),
+                        self.peek().kind
+                    ))
+                }
             };
 
             match kw.as_str() {
                 "DEFINE" => {
-                    let ln = self.line(); self.advance();
+                    let ln = self.line();
+                    self.advance();
                     let name = self.expect_ident()?;
                     self.expect_comma()?;
                     let val = self.parse_value()?;
-                    prog.defines.push(Define { name, value: val, line: ln });
+                    prog.defines.push(Define {
+                        name,
+                        value: val,
+                        line: ln,
+                    });
                 }
                 "IMPORT" => {
-                    let ln = self.line(); self.advance();
+                    let ln = self.line();
+                    self.advance();
                     let path = self.expect_string()?;
                     self.expect_ident()?; // AS
                     let alias = self.expect_ident()?;
-                    prog.imports.push(Import { path, alias, line: ln });
+                    prog.imports.push(Import {
+                        path,
+                        alias,
+                        line: ln,
+                    });
                 }
                 "RESERVE" => {
-                    let ln = self.line(); self.advance();
+                    let ln = self.line();
+                    self.advance();
                     let idx = self.parse_u32()?;
                     self.expect_comma()?;
                     let t = self.parse_type()?;
                     self.expect_comma()?;
                     let init = self.parse_value()?;
-                    prog.global_reserves.push(GlobalReserve { index: idx, fasm_type: t, init, line: ln });
+                    prog.global_reserves.push(GlobalReserve {
+                        index: idx,
+                        fasm_type: t,
+                        init,
+                        line: ln,
+                    });
                 }
                 "FUNC" => {
                     let f = self.parse_function()?;
                     prog.functions.push(f);
                 }
                 _ => {
-                    return Err(format!("Line {}: unexpected top-level keyword '{}'", self.line(), kw));
+                    return Err(format!(
+                        "Line {}: unexpected top-level keyword '{}'",
+                        self.line(),
+                        kw
+                    ));
                 }
             }
         }
@@ -94,7 +134,10 @@ impl Parser {
         loop {
             match self.peek().kind.clone() {
                 TokenKind::Eof => return Err(format!("Line {}: unterminated FUNC '{}'", ln, name)),
-                TokenKind::Ident(ref kw) if kw == "ENDF" => { self.advance(); break; }
+                TokenKind::Ident(ref kw) if kw == "ENDF" => {
+                    self.advance();
+                    break;
+                }
                 TokenKind::Ident(ref kw) if kw == "PARAM" => {
                     params.push(self.parse_param()?);
                 }
@@ -104,7 +147,12 @@ impl Parser {
                 }
             }
         }
-        Ok(Function { name, params, body, line: ln })
+        Ok(Function {
+            name,
+            params,
+            body,
+            line: ln,
+        })
     }
 
     fn parse_param(&mut self) -> Result<ParamDecl, String> {
@@ -120,16 +168,33 @@ impl Parser {
         let required = match req_str.as_str() {
             "REQUIRED" => true,
             "OPTIONAL" => false,
-            _ => return Err(format!("Line {}: expected REQUIRED or OPTIONAL, got '{}'", ln, req_str)),
+            _ => {
+                return Err(format!(
+                    "Line {}: expected REQUIRED or OPTIONAL, got '{}'",
+                    ln, req_str
+                ))
+            }
         };
-        Ok(ParamDecl { key, fasm_type: t, name, required, line: ln })
+        Ok(ParamDecl {
+            key,
+            fasm_type: t,
+            name,
+            required,
+            line: ln,
+        })
     }
 
     fn parse_statement(&mut self) -> Result<Statement, String> {
         let ln = self.line();
         let kw = match &self.peek().kind {
             TokenKind::Ident(s) => s.clone(),
-            _ => return Err(format!("Line {}: expected statement, got {:?}", ln, self.peek().kind)),
+            _ => {
+                return Err(format!(
+                    "Line {}: expected statement, got {:?}",
+                    ln,
+                    self.peek().kind
+                ))
+            }
         };
 
         // TRY block
@@ -145,7 +210,12 @@ impl Parser {
             let t = self.parse_type()?;
             self.expect_comma()?;
             let name = self.expect_ident()?;
-            return Ok(Statement::Local(LocalDecl { index: idx, fasm_type: t, name, line: ln }));
+            return Ok(Statement::Local(LocalDecl {
+                index: idx,
+                fasm_type: t,
+                name,
+                line: ln,
+            }));
         }
 
         // Label: if next peek after ident is NOT a comma, it might be a label name
@@ -171,11 +241,19 @@ impl Parser {
             let next = self.expect_ident()?;
             let full_mnemonic = format!("ASYNC_{}", next);
             let operands = self.parse_operand_list()?;
-            return Ok(Statement::Instr(Instr { mnemonic: full_mnemonic, operands, line: ln }));
+            return Ok(Statement::Instr(Instr {
+                mnemonic: full_mnemonic,
+                operands,
+                line: ln,
+            }));
         }
 
         let operands = self.parse_operand_list()?;
-        Ok(Statement::Instr(Instr { mnemonic, operands, line: ln }))
+        Ok(Statement::Instr(Instr {
+            mnemonic,
+            operands,
+            line: ln,
+        }))
     }
 
     fn parse_try_block(&mut self) -> Result<Statement, String> {
@@ -198,14 +276,24 @@ impl Parser {
                 }
                 _ => {
                     let stmt = self.parse_statement()?;
-                    if in_catch { catch_body.push(stmt); } else { body.push(stmt); }
+                    if in_catch {
+                        catch_body.push(stmt);
+                    } else {
+                        body.push(stmt);
+                    }
                 }
             }
         }
         // Generate synthetic label names — resolved in emitter
         let catch_label = format!("__catch_{}", ln);
-        let end_label   = format!("__endtry_{}", ln);
-        Ok(Statement::TryBlock { catch_label, end_label, body, catch_body, line: ln })
+        let end_label = format!("__endtry_{}", ln);
+        Ok(Statement::TryBlock {
+            catch_label,
+            end_label,
+            body,
+            catch_body,
+            line: ln,
+        })
     }
 
     fn parse_operand_list(&mut self) -> Result<Vec<AstValue>, String> {
@@ -228,7 +316,11 @@ impl Parser {
             }
 
             // After each operand look for comma
-            if self.peek().kind == TokenKind::Comma { self.advance(); } else { break; }
+            if self.peek().kind == TokenKind::Comma {
+                self.advance();
+            } else {
+                break;
+            }
         }
         Ok(ops)
     }
@@ -236,15 +328,15 @@ impl Parser {
     fn parse_value(&mut self) -> Result<AstValue, String> {
         let t = self.advance().clone();
         match t.kind {
-            TokenKind::Integer(n)    => Ok(AstValue::Integer(n)),
+            TokenKind::Integer(n) => Ok(AstValue::Integer(n)),
             TokenKind::HexInteger(n) => Ok(AstValue::HexInt(n)),
-            TokenKind::Float(f)      => Ok(AstValue::Float(f)),
-            TokenKind::StringLit(s)  => Ok(AstValue::Str(s)),
+            TokenKind::Float(f) => Ok(AstValue::Float(f)),
+            TokenKind::StringLit(s) => Ok(AstValue::Str(s)),
             TokenKind::Ident(s) => match s.as_str() {
-                "NULL"  => Ok(AstValue::Null),
-                "TRUE"  => Ok(AstValue::True),
+                "NULL" => Ok(AstValue::Null),
+                "TRUE" => Ok(AstValue::True),
                 "FALSE" => Ok(AstValue::False),
-                _       => Ok(AstValue::Ident(s)),
+                _ => Ok(AstValue::Ident(s)),
             },
             TokenKind::Ampersand => {
                 let name = self.expect_ident()?;
@@ -257,9 +349,13 @@ impl Parser {
     fn parse_type(&mut self) -> Result<FasmType, String> {
         let t = self.advance().clone();
         match t.kind {
-            TokenKind::Ident(s) => parse_fasm_type(&s)
-                .ok_or_else(|| format!("Line {}: unknown type '{}'", t.line, s)),
-            _ => Err(format!("Line {}: expected type name, got {:?}", t.line, t.kind)),
+            TokenKind::Ident(s) => {
+                parse_fasm_type(&s).ok_or_else(|| format!("Line {}: unknown type '{}'", t.line, s))
+            }
+            _ => Err(format!(
+                "Line {}: expected type name, got {:?}",
+                t.line, t.kind
+            )),
         }
     }
 
@@ -285,47 +381,51 @@ impl Parser {
         let t = self.advance().clone();
         match t.kind {
             TokenKind::StringLit(s) => Ok(s),
-            _ => Err(format!("Line {}: expected string literal, got {:?}", t.line, t.kind)),
+            _ => Err(format!(
+                "Line {}: expected string literal, got {:?}",
+                t.line, t.kind
+            )),
         }
     }
 }
 
 fn parse_fasm_type(s: &str) -> Option<FasmType> {
     match s {
-        "BOOL"        => Some(FasmType::Bool),
-        "INT8"        => Some(FasmType::Int8),
-        "INT16"       => Some(FasmType::Int16),
-        "INT32"       => Some(FasmType::Int32),
-        "INT64"       => Some(FasmType::Int64),
-        "UINT8"       => Some(FasmType::Uint8),
-        "UINT16"      => Some(FasmType::Uint16),
-        "UINT32"      => Some(FasmType::Uint32),
-        "UINT64"      => Some(FasmType::Uint64),
-        "FLOAT32"     => Some(FasmType::Float32),
-        "FLOAT64"     => Some(FasmType::Float64),
-        "REF_MUT"     => Some(FasmType::RefMut),
-        "REF_IMM"     => Some(FasmType::RefImm),
-        "VEC"         => Some(FasmType::Vec),
-        "STRUCT"      => Some(FasmType::Struct),
-        "STACK"       => Some(FasmType::Stack),
-        "QUEUE"       => Some(FasmType::Queue),
-        "HEAP_MIN"    => Some(FasmType::HeapMin),
-        "HEAP_MAX"    => Some(FasmType::HeapMax),
-        "SPARSE"      => Some(FasmType::Sparse),
-        "BTREE"       => Some(FasmType::BTree),
-        "SLICE"       => Some(FasmType::Slice),
-        "DEQUE"       => Some(FasmType::Deque),
-        "BITSET"      => Some(FasmType::Bitset),
-        "BITVEC"      => Some(FasmType::Bitvec),
-        "OPTION"      => Some(FasmType::Option),
-        "RESULT"      => Some(FasmType::Result),
-        "FUTURE"      => Some(FasmType::Future),
-        _             => None,
+        "BOOL" => Some(FasmType::Bool),
+        "INT8" => Some(FasmType::Int8),
+        "INT16" => Some(FasmType::Int16),
+        "INT32" => Some(FasmType::Int32),
+        "INT64" => Some(FasmType::Int64),
+        "UINT8" => Some(FasmType::Uint8),
+        "UINT16" => Some(FasmType::Uint16),
+        "UINT32" => Some(FasmType::Uint32),
+        "UINT64" => Some(FasmType::Uint64),
+        "FLOAT32" => Some(FasmType::Float32),
+        "FLOAT64" => Some(FasmType::Float64),
+        "REF_MUT" => Some(FasmType::RefMut),
+        "REF_IMM" => Some(FasmType::RefImm),
+        "VEC" => Some(FasmType::Vec),
+        "STRUCT" => Some(FasmType::Struct),
+        "STACK" => Some(FasmType::Stack),
+        "QUEUE" => Some(FasmType::Queue),
+        "HEAP_MIN" => Some(FasmType::HeapMin),
+        "HEAP_MAX" => Some(FasmType::HeapMax),
+        "SPARSE" => Some(FasmType::Sparse),
+        "BTREE" => Some(FasmType::BTree),
+        "SLICE" => Some(FasmType::Slice),
+        "DEQUE" => Some(FasmType::Deque),
+        "BITSET" => Some(FasmType::Bitset),
+        "BITVEC" => Some(FasmType::Bitvec),
+        "OPTION" => Some(FasmType::Option),
+        "RESULT" => Some(FasmType::Result),
+        "FUTURE" => Some(FasmType::Future),
+        _ => None,
     }
 }
 
 fn is_keyword(s: &str) -> bool {
-    matches!(s,
+    matches!(
+        s,
         "FUNC"|"ENDF"|"PARAM"|"LOCAL"|"CALL"|"ASYNC"|"RET"|"SYSCALL"|"AWAIT"|
         "RESERVE"|"RELEASE"|"MOV"|"STORE"|"ADDR"|"ADD"|"SUB"|"MUL"|"DIV"|"MOD"|"NEG"|
         "EQ"|"NEQ"|"LT"|"LTE"|"GT"|"GTE"|"AND"|"OR"|"XOR"|"NOT"|"SHL"|"SHR"|

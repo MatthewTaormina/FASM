@@ -15,14 +15,14 @@
 //! - [`Program`] — a fully compiled FASM program ready for execution
 //! - [`encode_program`] / [`decode_program`] — binary serialisation round-trip
 
-pub mod opcode;
-pub mod types;
-pub mod instruction;
-pub mod program;
 pub mod encode;
+pub mod instruction;
+pub mod opcode;
+pub mod program;
+pub mod types;
 
-pub use opcode::Opcode;
-pub use types::FasmType;
+pub use encode::{decode_program, encode_program};
 pub use instruction::{Instruction, Operand};
-pub use program::{Program, FunctionDef, ParamDescriptor};
-pub use encode::{encode_program, decode_program};
+pub use opcode::Opcode;
+pub use program::{FunctionDef, ParamDescriptor, Program};
+pub use types::FasmType;

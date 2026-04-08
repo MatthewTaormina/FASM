@@ -43,7 +43,10 @@ pub struct ServerConfig {
 
 impl Default for ServerConfig {
     fn default() -> Self {
-        Self { host: default_host(), port: default_port() }
+        Self {
+            host: default_host(),
+            port: default_port(),
+        }
     }
 }
 
@@ -67,7 +70,10 @@ pub struct StorageConfig {
 
 impl Default for StorageConfig {
     fn default() -> Self {
-        Self { data_dir: default_data_dir(), admin_token: None }
+        Self {
+            data_dir: default_data_dir(),
+            admin_token: None,
+        }
     }
 }
 
@@ -145,7 +151,9 @@ pub enum MisfirePolicy {
 }
 
 impl Default for MisfirePolicy {
-    fn default() -> Self { MisfirePolicy::Skip }
+    fn default() -> Self {
+        MisfirePolicy::Skip
+    }
 }
 
 // ── Queue ─────────────────────────────────────────────────────────────────────
@@ -183,14 +191,30 @@ pub struct EventConfig {
 
 // ── defaults ─────────────────────────────────────────────────────────────────
 
-fn default_host()           -> String { "0.0.0.0".to_string() }
-fn default_port()           -> u16    { 8080 }
-fn default_max_concurrent() -> usize  { 256 }
-fn default_misfire()        -> MisfirePolicy { MisfirePolicy::Skip }
-fn default_queue_type()     -> QueueType { QueueType::Shared }
-fn default_max_retries()    -> u32 { 3 }
-fn default_timeout_secs()   -> u64 { 30 }
-fn default_data_dir()       -> PathBuf { PathBuf::from("data") }
+fn default_host() -> String {
+    "0.0.0.0".to_string()
+}
+fn default_port() -> u16 {
+    8080
+}
+fn default_max_concurrent() -> usize {
+    256
+}
+fn default_misfire() -> MisfirePolicy {
+    MisfirePolicy::Skip
+}
+fn default_queue_type() -> QueueType {
+    QueueType::Shared
+}
+fn default_max_retries() -> u32 {
+    3
+}
+fn default_timeout_secs() -> u64 {
+    30
+}
+fn default_data_dir() -> PathBuf {
+    PathBuf::from("data")
+}
 
 // ── loader ────────────────────────────────────────────────────────────────────
 
@@ -198,6 +222,5 @@ fn default_data_dir()       -> PathBuf { PathBuf::from("data") }
 pub fn load(path: &std::path::Path) -> Result<EngineConfig, String> {
     let raw = std::fs::read_to_string(path)
         .map_err(|e| format!("cannot read config {:?}: {}", path, e))?;
-    toml::from_str(&raw)
-        .map_err(|e| format!("config parse error: {}", e))
+    toml::from_str(&raw).map_err(|e| format!("config parse error: {}", e))
 }

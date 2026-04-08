@@ -39,7 +39,10 @@ pub fn discover_auto_mount(dir: &Path) -> Vec<PluginManifest> {
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(err) => {
-            eprintln!("[fasm-sandbox] plugin discovery: cannot read {:?}: {}", dir, err);
+            eprintln!(
+                "[fasm-sandbox] plugin discovery: cannot read {:?}: {}",
+                dir, err
+            );
             return manifests;
         }
     };
@@ -47,10 +50,11 @@ pub fn discover_auto_mount(dir: &Path) -> Vec<PluginManifest> {
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) == Some("toml")
-            && path.file_name()
-                   .and_then(|n| n.to_str())
-                   .map(|n| n.ends_with(".plugin.toml"))
-                   .unwrap_or(false)
+            && path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.ends_with(".plugin.toml"))
+                .unwrap_or(false)
         {
             match load_manifest(&path) {
                 Ok(m) if m.auto_mount => manifests.push(m),
@@ -65,8 +69,7 @@ pub fn discover_auto_mount(dir: &Path) -> Vec<PluginManifest> {
 
 /// Load a single `*.plugin.toml` file.
 pub fn load_manifest(path: &Path) -> Result<PluginManifest, String> {
-    let raw = std::fs::read_to_string(path)
-        .map_err(|e| format!("read error: {}", e))?;
+    let raw = std::fs::read_to_string(path).map_err(|e| format!("read error: {}", e))?;
     parse_manifest(&raw)
 }
 
@@ -122,14 +125,16 @@ pub fn parse_manifest(toml: &str) -> Result<PluginManifest, String> {
             in_plugin = false;
             continue;
         }
-        if !in_plugin { continue; }
+        if !in_plugin {
+            continue;
+        }
 
         if let Some((k, v)) = split_kv(line) {
             match k {
-                "name"        => name       = Some(strip_quotes(v)),
-                "cmd"         => cmd        = Some(strip_quotes(v)),
-                "auto_mount"  => auto_mount = v.trim() == "true",
-                "args"        => args       = parse_str_array(v),
+                "name" => name = Some(strip_quotes(v)),
+                "cmd" => cmd = Some(strip_quotes(v)),
+                "auto_mount" => auto_mount = v.trim() == "true",
+                "args" => args = parse_str_array(v),
                 "syscall_ids" => syscall_ids = parse_int_array(v)?,
                 _ => {}
             }
@@ -137,8 +142,8 @@ pub fn parse_manifest(toml: &str) -> Result<PluginManifest, String> {
     }
 
     Ok(PluginManifest {
-        name:        name.unwrap_or_default(),
-        cmd:         cmd.ok_or("missing cmd in [plugin]")?,
+        name: name.unwrap_or_default(),
+        cmd: cmd.ok_or("missing cmd in [plugin]")?,
         args,
         syscall_ids,
         auto_mount,
@@ -159,16 +164,22 @@ fn strip_quotes(s: &str) -> String {
 /// Parse `["a", "b", "c"]` → `vec!["a", "b", "c"]`.
 fn parse_str_array(s: &str) -> Vec<String> {
     let inner = s.trim().trim_start_matches('[').trim_end_matches(']');
-    inner.split(',')
-         .map(|t| strip_quotes(t.trim()))
-         .filter(|t| !t.is_empty())
-         .collect()
+    inner
+        .split(',')
+        .map(|t| strip_quotes(t.trim()))
+        .filter(|t| !t.is_empty())
+        .collect()
 }
 
 /// Parse `[100, 101, 102]` → `vec![100, 101, 102]`.
 fn parse_int_array(s: &str) -> Result<Vec<i32>, String> {
     let inner = s.trim().trim_start_matches('[').trim_end_matches(']');
-    inner.split(',')
-         .map(|t| t.trim().parse::<i32>().map_err(|e| format!("bad syscall_id: {}", e)))
-         .collect()
+    inner
+        .split(',')
+        .map(|t| {
+            t.trim()
+                .parse::<i32>()
+                .map_err(|e| format!("bad syscall_id: {}", e))
+        })
+        .collect()
 }

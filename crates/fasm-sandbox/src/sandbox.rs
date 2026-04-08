@@ -1,10 +1,10 @@
-use std::path::Path;
-use fasm_bytecode::Program;
-use fasm_vm::{Executor, Value};
-use fasm_vm::value::FasmStruct;
-use fasm_vm::executor::SyscallFn;
 use crate::clock::ClockController;
 use crate::plugin_manifest;
+use fasm_bytecode::Program;
+use fasm_vm::executor::SyscallFn;
+use fasm_vm::value::FasmStruct;
+use fasm_vm::{Executor, Value};
+use std::path::Path;
 
 // ── Config types ──────────────────────────────────────────────────────────────
 
@@ -98,13 +98,16 @@ impl Sandbox {
         use std::sync::{Arc, Mutex};
         let sidecar = crate::sidecar::SidecarPlugin::new(cmd, args);
         let locked = Arc::new(Mutex::new(sidecar));
-        
+
         for &id in ids {
             let plg = locked.clone();
-            self.mount_syscall(id, Box::new(move |val, _| {
-                let mut p = plg.lock().unwrap();
-                p.call(id, &val)
-            }));
+            self.mount_syscall(
+                id,
+                Box::new(move |val, _| {
+                    let mut p = plg.lock().unwrap();
+                    p.call(id, &val)
+                }),
+            );
         }
     }
 
@@ -116,11 +119,18 @@ impl Sandbox {
     /// skipped.
     pub fn mount_sidecar_from_discovery(&mut self, dir: &Path) {
         let manifests = plugin_manifest::discover_auto_mount(dir);
-        eprintln!("[fasm-sandbox] discovered {} auto-mount plugins in {:?}", manifests.len(), dir);
+        eprintln!(
+            "[fasm-sandbox] discovered {} auto-mount plugins in {:?}",
+            manifests.len(),
+            dir
+        );
 
         for m in manifests {
             let arg_refs: Vec<&str> = m.args.iter().map(String::as_str).collect();
-            eprintln!("[fasm-sandbox] mounting plugin '{}' syscalls={:?} cmd={:?}", m.name, m.syscall_ids, m.cmd);
+            eprintln!(
+                "[fasm-sandbox] mounting plugin '{}' syscalls={:?} cmd={:?}",
+                m.name, m.syscall_ids, m.cmd
+            );
             self.mount_shared_sidecar(&m.syscall_ids, &m.cmd, &arg_refs);
         }
     }
@@ -135,14 +145,20 @@ impl Sandbox {
     ///
     /// `args` is passed as the function's `$args` struct — useful for HTTP
     /// request handlers, scheduled tasks, and event handlers.
-    pub fn run_named(&mut self, program: &Program, func: &str, args: Value) -> Result<Value, String> {
+    pub fn run_named(
+        &mut self,
+        program: &Program,
+        func: &str,
+        args: Value,
+    ) -> Result<Value, String> {
         self.apply_thread_protections();
         self.executor.run_named(program, func, args)
     }
 
     /// Convenience: run a named entry point with an empty `$args` struct.
     pub fn run_func(&mut self, program: &Program, func: &str) -> Result<Value, String> {
-        self.executor.run_named(program, func, Value::Struct(FasmStruct::default()))
+        self.executor
+            .run_named(program, func, Value::Struct(FasmStruct::default()))
     }
 
     // ── Internal helpers ─────────────────────────────────────────────────────

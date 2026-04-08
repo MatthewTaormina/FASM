@@ -14,7 +14,9 @@ use std::time::{Duration, Instant};
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 fn percentile(sorted: &[u128], p: f64) -> u128 {
-    if sorted.is_empty() { return 0; }
+    if sorted.is_empty() {
+        return 0;
+    }
     let idx = ((sorted.len() as f64 * p / 100.0) as usize).min(sorted.len() - 1);
     sorted[idx]
 }
@@ -42,15 +44,21 @@ async fn load_and_memory_report() {
     println!("\n══════════════════════════════════════════════════════════");
     println!("  FASM Engine — Load & Memory Report");
     println!("══════════════════════════════════════════════════════════");
-    println!("  Concurrency : {} callers × {} requests = {} total",
-        CONCURRENT_CALLERS, REQUESTS_PER_CALLER, TOTAL_REQUESTS);
+    println!(
+        "  Concurrency : {} callers × {} requests = {} total",
+        CONCURRENT_CALLERS, REQUESTS_PER_CALLER, TOTAL_REQUESTS
+    );
 
     // ── Ping benchmark (lightweight) ─────────────────────────────────────────
 
     println!("\n── Ping endpoint (/ping — Int32 return, no CPU work)");
     let engine = TestEngine::start_fixtures(128).await;
     let base_rss = process_rss_kb();
-    println!("  Baseline RSS : {} KB ({:.1} MB)", base_rss, base_rss as f64 / 1024.0);
+    println!(
+        "  Baseline RSS : {} KB ({:.1} MB)",
+        base_rss,
+        base_rss as f64 / 1024.0
+    );
 
     let base = engine.base_url.clone();
     let client = reqwest::Client::builder()
@@ -61,31 +69,33 @@ async fn load_and_memory_report() {
 
     let wall_start = Instant::now();
 
-    let futs: Vec<_> = (0..CONCURRENT_CALLERS).map(|_| {
-        let c = client.clone();
-        let base = base.clone();
-        tokio::spawn(async move {
-            let mut latencies = Vec::with_capacity(REQUESTS_PER_CALLER);
-            let mut errors = 0usize;
-            for _ in 0..REQUESTS_PER_CALLER {
-                let t0 = Instant::now();
-                match c.get(format!("{}/ping", base)).send().await {
-                    Ok(r) if r.status().as_u16() == 200 => {
-                        latencies.push(t0.elapsed().as_micros());
-                    }
-                    Ok(r) => {
-                        eprintln!("unexpected status: {}", r.status());
-                        errors += 1;
-                    }
-                    Err(e) => {
-                        eprintln!("request error: {}", e);
-                        errors += 1;
+    let futs: Vec<_> = (0..CONCURRENT_CALLERS)
+        .map(|_| {
+            let c = client.clone();
+            let base = base.clone();
+            tokio::spawn(async move {
+                let mut latencies = Vec::with_capacity(REQUESTS_PER_CALLER);
+                let mut errors = 0usize;
+                for _ in 0..REQUESTS_PER_CALLER {
+                    let t0 = Instant::now();
+                    match c.get(format!("{}/ping", base)).send().await {
+                        Ok(r) if r.status().as_u16() == 200 => {
+                            latencies.push(t0.elapsed().as_micros());
+                        }
+                        Ok(r) => {
+                            eprintln!("unexpected status: {}", r.status());
+                            errors += 1;
+                        }
+                        Err(e) => {
+                            eprintln!("request error: {}", e);
+                            errors += 1;
+                        }
                     }
                 }
-            }
-            (latencies, errors)
+                (latencies, errors)
+            })
         })
-    }).collect();
+        .collect();
 
     let mut all_latencies: Vec<u128> = Vec::with_capacity(TOTAL_REQUESTS);
     let mut total_errors = 0usize;
@@ -99,22 +109,39 @@ async fn load_and_memory_report() {
     let peak_rss = process_rss_kb();
 
     all_latencies.sort_unstable();
-    let p50  = percentile(&all_latencies, 50.0);
-    let p90  = percentile(&all_latencies, 90.0);
-    let p99  = percentile(&all_latencies, 99.0);
-    let mean = if all_latencies.is_empty() { 0 }
-               else { all_latencies.iter().sum::<u128>() / all_latencies.len() as u128 };
+    let p50 = percentile(&all_latencies, 50.0);
+    let p90 = percentile(&all_latencies, 90.0);
+    let p99 = percentile(&all_latencies, 99.0);
+    let mean = if all_latencies.is_empty() {
+        0
+    } else {
+        all_latencies.iter().sum::<u128>() / all_latencies.len() as u128
+    };
 
     let succeeded = TOTAL_REQUESTS - total_errors;
     let rps = succeeded as f64 / wall_elapsed.as_secs_f64();
     let delta_rss = peak_rss.saturating_sub(base_rss);
 
-    println!("  Completed    : {}/{} requests succeeded", succeeded, TOTAL_REQUESTS);
+    println!(
+        "  Completed    : {}/{} requests succeeded",
+        succeeded, TOTAL_REQUESTS
+    );
     println!("  Wall time    : {:.2} s", wall_elapsed.as_secs_f64());
     println!("  Throughput   : {:.0} req/s", rps);
-    println!("  Latency (µs) : mean={} p50={} p90={} p99={}", mean, p50, p90, p99);
-    println!("  Peak RSS     : {} KB ({:.1} MB)", peak_rss, peak_rss as f64 / 1024.0);
-    println!("  RSS delta    : {} KB ({:.1} MB)", delta_rss, delta_rss as f64 / 1024.0);
+    println!(
+        "  Latency (µs) : mean={} p50={} p90={} p99={}",
+        mean, p50, p90, p99
+    );
+    println!(
+        "  Peak RSS     : {} KB ({:.1} MB)",
+        peak_rss,
+        peak_rss as f64 / 1024.0
+    );
+    println!(
+        "  RSS delta    : {} KB ({:.1} MB)",
+        delta_rss,
+        delta_rss as f64 / 1024.0
+    );
 
     drop(engine); // shut down engine before fib benchmark
 
@@ -134,25 +161,33 @@ async fn load_and_memory_report() {
     let fib_base_rss = process_rss_kb();
     let fib_start = Instant::now();
 
-    let fib_futs: Vec<_> = (0..FIB_CALLERS).map(|_| {
-        let c = client2.clone();
-        let base = base2.clone();
-        tokio::spawn(async move {
-            let mut latencies = Vec::new();
-            let mut errors = 0usize;
-            for _ in 0..FIB_PER_CALLER {
-                let t0 = Instant::now();
-                match c.get(format!("{}/fib", base)).send().await {
-                    Ok(r) if r.status().as_u16() == 200 => {
-                        latencies.push(t0.elapsed().as_millis());
+    let fib_futs: Vec<_> = (0..FIB_CALLERS)
+        .map(|_| {
+            let c = client2.clone();
+            let base = base2.clone();
+            tokio::spawn(async move {
+                let mut latencies = Vec::new();
+                let mut errors = 0usize;
+                for _ in 0..FIB_PER_CALLER {
+                    let t0 = Instant::now();
+                    match c.get(format!("{}/fib", base)).send().await {
+                        Ok(r) if r.status().as_u16() == 200 => {
+                            latencies.push(t0.elapsed().as_millis());
+                        }
+                        Ok(r) => {
+                            errors += 1;
+                            eprintln!("fib status: {}", r.status());
+                        }
+                        Err(e) => {
+                            errors += 1;
+                            eprintln!("fib error: {}", e);
+                        }
                     }
-                    Ok(r) => { errors += 1; eprintln!("fib status: {}", r.status()); }
-                    Err(e) => { errors += 1; eprintln!("fib error: {}", e); }
                 }
-            }
-            (latencies, errors)
+                (latencies, errors)
+            })
         })
-    }).collect();
+        .collect();
 
     let mut fib_latencies: Vec<u128> = Vec::new();
     let mut fib_errors = 0;
@@ -170,29 +205,46 @@ async fn load_and_memory_report() {
     let fib_rps = (FIB_CALLERS * FIB_PER_CALLER - fib_errors) as f64 / fib_elapsed.as_secs_f64();
     let fib_delta = fib_peak_rss.saturating_sub(fib_base_rss);
 
-    println!("  Concurrency  : {} callers × {} = {} requests", FIB_CALLERS, FIB_PER_CALLER, FIB_CALLERS * FIB_PER_CALLER);
+    println!(
+        "  Concurrency  : {} callers × {} = {} requests",
+        FIB_CALLERS,
+        FIB_PER_CALLER,
+        FIB_CALLERS * FIB_PER_CALLER
+    );
     println!("  Wall time    : {:.2} s", fib_elapsed.as_secs_f64());
     println!("  Throughput   : {:.1} req/s", fib_rps);
     println!("  Latency (ms) : p50={} p99={}", fib_p50, fib_p99);
-    println!("  Peak RSS     : {} KB ({:.1} MB)", fib_peak_rss, fib_peak_rss as f64 / 1024.0);
-    println!("  RSS delta    : {} KB ({:.1} MB)", fib_delta, fib_delta as f64 / 1024.0);
+    println!(
+        "  Peak RSS     : {} KB ({:.1} MB)",
+        fib_peak_rss,
+        fib_peak_rss as f64 / 1024.0
+    );
+    println!(
+        "  RSS delta    : {} KB ({:.1} MB)",
+        fib_delta,
+        fib_delta as f64 / 1024.0
+    );
     println!("══════════════════════════════════════════════════════════\n");
 
     // ── Assertions ───────────────────────────────────────────────────────────
-    assert_eq!(total_errors, 0, "ping load: {} errors out of {}", total_errors, TOTAL_REQUESTS);
+    assert_eq!(
+        total_errors, 0,
+        "ping load: {} errors out of {}",
+        total_errors, TOTAL_REQUESTS
+    );
     assert_eq!(fib_errors, 0, "fib load: {} errors", fib_errors);
     assert!(
-        p99 < 5_000_000,  // p99 < 5 s in µs for ping
+        p99 < 5_000_000, // p99 < 5 s in µs for ping
         "ping p99 latency too high: {} µs",
         p99
     );
     assert!(
-        fib_p99 < 30_000,  // fib p99 < 30 s in ms
+        fib_p99 < 30_000, // fib p99 < 30 s in ms
         "fib p99 latency too high: {} ms",
         fib_p99
     );
     assert!(
-        delta_rss < 256 * 1024,  // ping memory delta < 256 MB
+        delta_rss < 256 * 1024, // ping memory delta < 256 MB
         "ping memory leak? delta RSS {} KB",
         delta_rss
     );

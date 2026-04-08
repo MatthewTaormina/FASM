@@ -5,30 +5,37 @@
 //!
 //! Produces HTML reports in `target/criterion/`.
 
-use std::{path::PathBuf, sync::{Arc, OnceLock}, time::Duration};
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use std::{
+    path::PathBuf,
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 use tokio::runtime::Runtime;
 
+use fasm_compiler::compile_source;
 use fasm_engine::{
     config::{EngineConfig, EngineSettings, PluginsConfig, RouteConfig, ServerConfig},
     engine::run_with_listener,
 };
-use fasm_compiler::compile_source;
-use fasm_vm::{value::FasmStruct, Value};
 use fasm_engine::{
     dispatcher::{ExecRequest, TaskDispatcher},
     metrics::MetricsRegistry,
 };
 use fasm_sandbox::SandboxConfig;
+use fasm_vm::{value::FasmStruct, Value};
 
 // ── HTTP client ─────────────────────────────────────────────────────────────────
 
 static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 fn client() -> &'static reqwest::Client {
-    HTTP_CLIENT.get_or_init(|| reqwest::Client::builder()
-        .pool_max_idle_per_host(64)
-        .timeout(Duration::from_secs(10))
-        .build().unwrap())
+    HTTP_CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .pool_max_idle_per_host(64)
+            .timeout(Duration::from_secs(10))
+            .build()
+            .unwrap()
+    })
 }
 
 // ── Engine helpers ────────────────────────────────────────────────────────────
@@ -46,14 +53,26 @@ fn read_fixture(name: &str) -> String {
 
 fn make_engine_config(routes: Vec<RouteConfig>) -> EngineConfig {
     EngineConfig {
-        server:    ServerConfig  { host: "127.0.0.1".into(), port: 0 },
-        engine:    EngineSettings { max_concurrent: 128, hot_reload: false, clock_hz: 0, enable_seccomp: false, enable_landlock: false, landlock_allowed_read_paths: vec![] },
-        plugins:   PluginsConfig { discovery_dir: None },
-        storage:   Default::default(),
+        server: ServerConfig {
+            host: "127.0.0.1".into(),
+            port: 0,
+        },
+        engine: EngineSettings {
+            max_concurrent: 128,
+            hot_reload: false,
+            clock_hz: 0,
+            enable_seccomp: false,
+            enable_landlock: false,
+            landlock_allowed_read_paths: vec![],
+        },
+        plugins: PluginsConfig {
+            discovery_dir: None,
+        },
+        storage: Default::default(),
         routes,
         schedules: vec![],
-        queues:    vec![],
-        events:    vec![],
+        queues: vec![],
+        events: vec![],
     }
 }
 
@@ -89,27 +108,35 @@ fn launch_engine_bg(routes: Vec<RouteConfig>) -> String {
 
 // Shared base URLs (engines live forever in background threads)
 static PING_URL: OnceLock<String> = OnceLock::new();
-static FIB_URL:  OnceLock<String> = OnceLock::new();
+static FIB_URL: OnceLock<String> = OnceLock::new();
 
 fn ping_base() -> &'static str {
-    PING_URL.get_or_init(|| launch_engine_bg(vec![RouteConfig {
-        method: "GET".into(), path: "/ping".into(),
-        function: "Ping".into(), source: "ping.fasm".into(),
-    }]))
+    PING_URL.get_or_init(|| {
+        launch_engine_bg(vec![RouteConfig {
+            method: "GET".into(),
+            path: "/ping".into(),
+            function: "Ping".into(),
+            source: "ping.fasm".into(),
+        }])
+    })
 }
 
 fn fib_base() -> &'static str {
-    FIB_URL.get_or_init(|| launch_engine_bg(vec![RouteConfig {
-        method: "GET".into(), path: "/fib".into(),
-        function: "FibHandler".into(), source: "fib_handler.fasm".into(),
-    }]))
+    FIB_URL.get_or_init(|| {
+        launch_engine_bg(vec![RouteConfig {
+            method: "GET".into(),
+            path: "/fib".into(),
+            function: "FibHandler".into(),
+            source: "fib_handler.fasm".into(),
+        }])
+    })
 }
 
 // ── Benchmark 1: HTTP ping round-trip latency ─────────────────────────────────
 
 fn bench_http_ping_latency(c: &mut Criterion) {
     let base = ping_base();
-    let url  = format!("{}/ping", base);
+    let url = format!("{}/ping", base);
     let rt = Runtime::new().unwrap();
 
     c.bench_function("http_ping_roundtrip", |b| {
@@ -141,10 +168,12 @@ fn bench_http_concurrent_throughput(c: &mut Criterion) {
                 b.to_async(&rt).iter(move || {
                     let b4 = b3.clone();
                     async move {
-                        let futs: Vec<_> = (0..n).map(|_| {
-                            let u = format!("{}/ping", b4);
-                            async move { client().get(&u).send().await.unwrap() }
-                        }).collect();
+                        let futs: Vec<_> = (0..n)
+                            .map(|_| {
+                                let u = format!("{}/ping", b4);
+                                async move { client().get(&u).send().await.unwrap() }
+                            })
+                            .collect();
                         futures::future::join_all(futs).await;
                     }
                 });
@@ -159,11 +188,11 @@ fn bench_http_concurrent_throughput(c: &mut Criterion) {
 fn bench_raw_vm_ping(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
 
-    let src     = read_fixture("ping.fasm");
+    let src = read_fixture("ping.fasm");
     let program = Arc::new(compile_source(&src).expect("compile ping.fasm"));
     let metrics = MetricsRegistry::new();
     let sandbox = Arc::new(SandboxConfig::default());
-    let disp    = TaskDispatcher::new_with_config(128, metrics, sandbox);
+    let disp = TaskDispatcher::new_with_config(128, metrics, sandbox);
 
     c.bench_function("vm_raw_ping", |b| {
         b.to_async(&rt).iter(|| {
@@ -171,9 +200,9 @@ fn bench_raw_vm_ping(c: &mut Criterion) {
             let p = program.clone();
             async move {
                 let req = ExecRequest {
-                    func:    "Ping".into(),
+                    func: "Ping".into(),
                     program: p,
-                    args:    Value::Struct(FasmStruct::default()),
+                    args: Value::Struct(FasmStruct::default()),
                     trigger: "bench".into(),
                 };
                 criterion::black_box(d.spawn_async(req).await.unwrap());
@@ -187,11 +216,11 @@ fn bench_raw_vm_ping(c: &mut Criterion) {
 fn bench_raw_vm_fib30(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
 
-    let src     = read_fixture("fib_handler.fasm");
+    let src = read_fixture("fib_handler.fasm");
     let program = Arc::new(compile_source(&src).expect("compile fib_handler.fasm"));
     let metrics = MetricsRegistry::new();
     let sandbox = Arc::new(SandboxConfig::default());
-    let disp    = TaskDispatcher::new_with_config(128, metrics, sandbox);
+    let disp = TaskDispatcher::new_with_config(128, metrics, sandbox);
 
     c.bench_function("vm_raw_fib30", |b| {
         b.to_async(&rt).iter(|| {
@@ -199,9 +228,9 @@ fn bench_raw_vm_fib30(c: &mut Criterion) {
             let p = program.clone();
             async move {
                 let req = ExecRequest {
-                    func:    "FibHandler".into(),
+                    func: "FibHandler".into(),
                     program: p,
-                    args:    Value::Struct(FasmStruct::default()),
+                    args: Value::Struct(FasmStruct::default()),
                     trigger: "bench".into(),
                 };
                 criterion::black_box(d.spawn_async(req).await.unwrap());
@@ -214,7 +243,7 @@ fn bench_raw_vm_fib30(c: &mut Criterion) {
 
 fn bench_http_fib_roundtrip(c: &mut Criterion) {
     let base = fib_base();
-    let url  = format!("{}/fib", base);
+    let url = format!("{}/fib", base);
     let rt = Runtime::new().unwrap();
 
     c.bench_function("http_fib30_roundtrip", |b| {

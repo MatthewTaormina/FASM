@@ -18,18 +18,17 @@
 //! let result = sandbox.run(&program)?;
 //! ```
 
-pub mod sandbox;
 pub mod clock;
-pub mod sidecar;
 pub mod plugin_manifest;
+pub mod sandbox;
+pub mod sidecar;
 
-#[cfg(target_os = "linux")]
-pub mod seccomp;
 #[cfg(target_os = "linux")]
 pub mod landlock;
+#[cfg(target_os = "linux")]
+pub mod seccomp;
 
-pub use sandbox::{Sandbox, SandboxConfig};
 pub use clock::ClockController;
+pub use plugin_manifest::{discover_auto_mount, load_manifest, PluginManifest};
+pub use sandbox::{Sandbox, SandboxConfig};
 pub use sidecar::SidecarPlugin;
-pub use plugin_manifest::{PluginManifest, discover_auto_mount, load_manifest};
-

@@ -8,26 +8,30 @@
 //! Shared queues provide at-least-once delivery: a message stays `pending` until
 //! the handler calls `MQ_ACK`, or times out and is re-queued (up to `max_retries`).
 
+use serde_json::Value as JsonValue;
 use std::{
     collections::{HashMap, VecDeque},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 use uuid::Uuid;
-use serde_json::Value as JsonValue;
 
 // ── Message ───────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub struct Message {
-    pub id:      String,
+    pub id: String,
     pub payload: JsonValue,
     pub retries: u32,
 }
 
 impl Message {
     pub fn new(payload: JsonValue) -> Self {
-        Self { id: Uuid::new_v4().to_string(), payload, retries: 0 }
+        Self {
+            id: Uuid::new_v4().to_string(),
+            payload,
+            retries: 0,
+        }
     }
 }
 
@@ -35,30 +39,30 @@ impl Message {
 
 #[derive(Debug)]
 struct PendingAck {
-    msg:        Message,
-    deadline:   Instant,
+    msg: Message,
+    deadline: Instant,
 }
 
 // ── Shared queue internals ────────────────────────────────────────────────────
 
 #[derive(Debug)]
 struct SharedQueueInner {
-    ready:       VecDeque<Message>,
-    in_flight:   HashMap<String, PendingAck>,
+    ready: VecDeque<Message>,
+    in_flight: HashMap<String, PendingAck>,
     max_retries: u32,
-    timeout:     Duration,
+    timeout: Duration,
     /// notify_rx can be used by the looper to wake up when new messages arrive.
-    notify:      tokio::sync::Notify,
+    notify: tokio::sync::Notify,
 }
 
 impl SharedQueueInner {
     fn new(max_retries: u32, timeout_secs: u64) -> Self {
         Self {
-            ready:       VecDeque::new(),
-            in_flight:   HashMap::new(),
+            ready: VecDeque::new(),
+            in_flight: HashMap::new(),
             max_retries,
-            timeout:     Duration::from_secs(timeout_secs),
-            notify:      tokio::sync::Notify::new(),
+            timeout: Duration::from_secs(timeout_secs),
+            notify: tokio::sync::Notify::new(),
         }
     }
 
@@ -70,10 +74,13 @@ impl SharedQueueInner {
     fn try_dequeue(&mut self) -> Option<Message> {
         let msg = self.ready.pop_front()?;
         let id = msg.id.clone();
-        self.in_flight.insert(id, PendingAck {
-            msg: msg.clone(),
-            deadline: Instant::now() + self.timeout,
-        });
+        self.in_flight.insert(
+            id,
+            PendingAck {
+                msg: msg.clone(),
+                deadline: Instant::now() + self.timeout,
+            },
+        );
         Some(msg)
     }
 
@@ -98,7 +105,8 @@ impl SharedQueueInner {
     /// Scan for timed-out in-flight messages and re-queue or drop them.
     fn requeue_expired(&mut self) {
         let now = Instant::now();
-        let expired: Vec<String> = self.in_flight
+        let expired: Vec<String> = self
+            .in_flight
             .iter()
             .filter(|(_, p)| p.deadline <= now)
             .map(|(id, _)| id.clone())
@@ -127,7 +135,10 @@ pub struct SharedQueue(Arc<Mutex<SharedQueueInner>>);
 
 impl SharedQueue {
     pub fn new(max_retries: u32, timeout_secs: u64) -> Self {
-        Self(Arc::new(Mutex::new(SharedQueueInner::new(max_retries, timeout_secs))))
+        Self(Arc::new(Mutex::new(SharedQueueInner::new(
+            max_retries,
+            timeout_secs,
+        ))))
     }
 
     pub fn send(&self, payload: JsonValue) {
@@ -197,7 +208,9 @@ impl PrivateQueue {
 }
 
 impl Default for PrivateQueue {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ── QueueRegistry ─────────────────────────────────────────────────────────────
@@ -207,14 +220,16 @@ impl Default for PrivateQueue {
 pub struct QueueRegistry(Arc<Mutex<HashMap<String, SharedQueue>>>);
 
 impl QueueRegistry {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     /// Get or create a named shared queue.
     pub fn get_or_create(&self, name: &str, max_retries: u32, timeout_secs: u64) -> SharedQueue {
         let mut g = self.0.lock().unwrap();
         g.entry(name.to_string())
-         .or_insert_with(|| SharedQueue::new(max_retries, timeout_secs))
-         .clone()
+            .or_insert_with(|| SharedQueue::new(max_retries, timeout_secs))
+            .clone()
     }
 
     /// Look up an existing named queue (returns None if not registered).
@@ -260,7 +275,9 @@ mod tests {
         let id = msg.id.clone();
         assert!(q.nack(&id), "nack should succeed");
         // Message should be back in ready queue
-        let requeued = q.try_dequeue().expect("message should be requeued after nack");
+        let requeued = q
+            .try_dequeue()
+            .expect("message should be requeued after nack");
         assert_eq!(requeued.retries, 1);
     }
 
@@ -285,7 +302,10 @@ mod tests {
         // Don't ack — let it expire
         // With a 0s timeout, requeue_expired should put it back immediately
         q.requeue_expired();
-        assert!(q.try_dequeue().is_some(), "expired message should be requeued");
+        assert!(
+            q.try_dequeue().is_some(),
+            "expired message should be requeued"
+        );
     }
 
     #[test]

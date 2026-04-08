@@ -26,20 +26,23 @@
 //! | `application/json` null | `NULL` |
 //! | Any other content-type | `VEC<UINT8>` raw bytes |
 
-use std::sync::Arc;
 use axum::{
     extract::Request,
     http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
-use serde_json::Value as JsonValue;
-use tokio::sync::RwLock;
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
-use fasm_vm::{Value, value::{FasmStruct, FasmVec}};
+use fasm_vm::{
+    value::{FasmStruct, FasmVec},
+    Value,
+};
+use serde_json::Value as JsonValue;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use crate::{
-    dispatcher::{ExecRequest, EngineError, TaskDispatcher},
+    dispatcher::{EngineError, ExecRequest, TaskDispatcher},
     metrics::MetricsRegistry,
     router::RouteTable,
 };
@@ -49,13 +52,13 @@ use crate::{
 /// Shared state threaded through axum handlers.
 #[derive(Clone)]
 pub struct AppState {
-    pub routes:      Arc<RwLock<RouteTable>>,
-    pub dispatcher:  TaskDispatcher,
-    pub metrics:     MetricsRegistry,
+    pub routes: Arc<RwLock<RouteTable>>,
+    pub dispatcher: TaskDispatcher,
+    pub metrics: MetricsRegistry,
     /// Optional token required on all `/api/v1/` requests.
     pub admin_token: Option<String>,
     /// Namespace/app/file registry for the management API.
-    pub registry:    crate::admin::AppRegistry,
+    pub registry: crate::admin::AppRegistry,
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
@@ -66,9 +69,9 @@ pub async fn handle_request(
     axum::extract::State(state): axum::extract::State<AppState>,
     req: Request,
 ) -> Response {
-    let method  = req.method().as_str().to_uppercase();
-    let uri     = req.uri().clone();
-    let path    = uri.path().to_string();
+    let method = req.method().as_str().to_uppercase();
+    let uri = req.uri().clone();
+    let path = uri.path().to_string();
 
     // match route — hold read lock only for the lookup, then release
     let matched = {
@@ -77,7 +80,7 @@ pub async fn handle_request(
     };
     let matched = match matched {
         Some(m) => m,
-        None    => return (StatusCode::NOT_FOUND, "404 not found").into_response(),
+        None => return (StatusCode::NOT_FOUND, "404 not found").into_response(),
     };
 
     // Build $args struct
@@ -107,12 +110,19 @@ pub async fn handle_request(
     // ── Body: JSON → FASM value tree; anything else → VEC<UINT8> raw bytes ────
     let (parts, body) = req.into_parts();
     let body_bytes = match axum::body::to_bytes(body, 1_048_576).await {
-        Ok(b)  => b,
-        Err(_) => return (StatusCode::BAD_REQUEST, "request body too large or unreadable").into_response(),
+        Ok(b) => b,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                "request body too large or unreadable",
+            )
+                .into_response()
+        }
     };
 
     if !body_bytes.is_empty() {
-        let is_json = parts.headers
+        let is_json = parts
+            .headers
             .get(axum::http::header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
             .map(|ct| ct.starts_with("application/json"))
@@ -120,15 +130,17 @@ pub async fn handle_request(
 
         let body_val = if is_json {
             match serde_json::from_slice::<JsonValue>(&body_bytes) {
-                Ok(jv)  => json_to_value(jv),
-                Err(e)  => return (
-                    StatusCode::BAD_REQUEST,
-                    format!("invalid JSON body: {}", e),
-                ).into_response(),
+                Ok(jv) => json_to_value(jv),
+                Err(e) => {
+                    return (StatusCode::BAD_REQUEST, format!("invalid JSON body: {}", e))
+                        .into_response()
+                }
             }
         } else {
             // Raw bytes (form data, binary, plain text, …)
-            Value::Vec(FasmVec(body_bytes.iter().map(|b| Value::Uint8(*b)).collect()))
+            Value::Vec(FasmVec(
+                body_bytes.iter().map(|b| Value::Uint8(*b)).collect(),
+            ))
         };
 
         args_struct.insert(field_idx, body_val);
@@ -136,9 +148,9 @@ pub async fn handle_request(
 
     // Build ExecRequest
     let exec_req = ExecRequest {
-        func:    matched.func.clone(),
+        func: matched.func.clone(),
         program: matched.program.clone(),
-        args:    Value::Struct(args_struct),
+        args: Value::Struct(args_struct),
         trigger: "http".to_string(),
     };
 
@@ -166,7 +178,12 @@ pub async fn handle_metrics(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> Response {
     let text = state.metrics.render_text();
-    (StatusCode::OK, [("content-type", "text/plain; version=0.0.4")], text).into_response()
+    (
+        StatusCode::OK,
+        [("content-type", "text/plain; version=0.0.4")],
+        text,
+    )
+        .into_response()
 }
 
 // ── /admin/queues handler ─────────────────────────────────────────────────────
@@ -191,13 +208,13 @@ pub async fn handle_queue_info(
 
 fn json_to_value(jv: JsonValue) -> Value {
     match jv {
-        JsonValue::Null       => Value::Null,
-        JsonValue::Bool(b)    => Value::Bool(b),
-        JsonValue::String(s)  => {
+        JsonValue::Null => Value::Null,
+        JsonValue::Bool(b) => Value::Bool(b),
+        JsonValue::String(s) => {
             // String literals → VEC<UINT8> (bare content, no surrounding quotes)
             Value::Vec(FasmVec(s.bytes().map(Value::Uint8).collect()))
         }
-        JsonValue::Number(n)  => {
+        JsonValue::Number(n) => {
             if let Some(i) = n.as_i64() {
                 if i >= i32::MIN as i64 && i <= i32::MAX as i64 {
                     Value::Int32(i as i32)
@@ -219,9 +236,11 @@ fn json_to_value(jv: JsonValue) -> Value {
             if obj.len() == 1 {
                 if let Some(JsonValue::String(enc)) = obj.get("$b64") {
                     match B64.decode(enc) {
-                        Ok(bytes) => return Value::Vec(FasmVec(
-                            bytes.into_iter().map(Value::Uint8).collect()
-                        )),
+                        Ok(bytes) => {
+                            return Value::Vec(FasmVec(
+                                bytes.into_iter().map(Value::Uint8).collect(),
+                            ))
+                        }
                         Err(_) => { /* fall through to normal struct handling */ }
                     }
                 }
@@ -242,7 +261,9 @@ fn json_to_value(jv: JsonValue) -> Value {
 /// Only handles the `%XX` form; `+` as space is not URL-standard for paths.
 fn percent_decode(s: &str) -> String {
     // Fast path: if no '%' nothing to decode
-    if !s.contains('%') { return s.to_string(); }
+    if !s.contains('%') {
+        return s.to_string();
+    }
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
@@ -275,21 +296,28 @@ fn percent_decode(s: &str) -> String {
 
 fn value_to_json(v: &Value) -> JsonValue {
     match v {
-        Value::Null         => JsonValue::Null,
-        Value::Bool(b)      => JsonValue::Bool(*b),
-        Value::Int32(n)     => JsonValue::Number((*n).into()),
-        Value::Int64(n)     => JsonValue::Number((*n).into()),
-        Value::Uint8(n)     => JsonValue::Number((*n).into()),
-        Value::Uint16(n)    => JsonValue::Number((*n).into()),
-        Value::Uint32(n)    => JsonValue::Number((*n).into()),
-        Value::Uint64(n)    => serde_json::json!(*n),
-        Value::Float32(f)   => serde_json::json!(*f as f64),
-        Value::Float64(f)   => serde_json::json!(*f),
-        Value::Vec(v)       => {
+        Value::Null => JsonValue::Null,
+        Value::Bool(b) => JsonValue::Bool(*b),
+        Value::Int32(n) => JsonValue::Number((*n).into()),
+        Value::Int64(n) => JsonValue::Number((*n).into()),
+        Value::Uint8(n) => JsonValue::Number((*n).into()),
+        Value::Uint16(n) => JsonValue::Number((*n).into()),
+        Value::Uint32(n) => JsonValue::Number((*n).into()),
+        Value::Uint64(n) => serde_json::json!(*n),
+        Value::Float32(f) => serde_json::json!(*f as f64),
+        Value::Float64(f) => serde_json::json!(*f),
+        Value::Vec(v) => {
             // Is this a pure UINT8 vector (byte array)?
-            let bytes: Vec<u8> = v.0.iter()
-                .filter_map(|b| if let Value::Uint8(u) = b { Some(*u) } else { None })
-                .collect();
+            let bytes: Vec<u8> =
+                v.0.iter()
+                    .filter_map(|b| {
+                        if let Value::Uint8(u) = b {
+                            Some(*u)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
             if bytes.len() == v.0.len() {
                 // All bytes: try UTF-8 string first (most common case)
                 if let Ok(s) = std::str::from_utf8(&bytes) {
@@ -301,7 +329,7 @@ fn value_to_json(v: &Value) -> JsonValue {
             // Mixed-type VEC → recursive JSON array
             JsonValue::Array(v.0.iter().map(value_to_json).collect())
         }
-        Value::Struct(s)    => {
+        Value::Struct(s) => {
             // STRUCT with u32 keys → JSON object with string-ified keys
             // preserves round-trip: client reads field "0", "1", … to mirror FASM access
             let mut map = serde_json::Map::new();
@@ -310,12 +338,12 @@ fn value_to_json(v: &Value) -> JsonValue {
             }
             JsonValue::Object(map)
         }
-        Value::Option(opt)  => match opt.as_ref() {
+        Value::Option(opt) => match opt.as_ref() {
             fasm_vm::value::FasmOption::Some(v) => value_to_json(v),
-            fasm_vm::value::FasmOption::None    => JsonValue::Null,
+            fasm_vm::value::FasmOption::None => JsonValue::Null,
         },
-        Value::Result(r)    => match r.as_ref() {
-            fasm_vm::value::FasmResult::Ok(v)  => serde_json::json!({"ok":  value_to_json(v)}),
+        Value::Result(r) => match r.as_ref() {
+            fasm_vm::value::FasmResult::Ok(v) => serde_json::json!({"ok":  value_to_json(v)}),
             fasm_vm::value::FasmResult::Err(c) => serde_json::json!({"err": c}),
         },
         _ => JsonValue::String(format!("{:?}", v)),

@@ -17,7 +17,9 @@ impl ClockController {
 
     /// Returns true if the sandbox may execute another instruction this tick.
     pub fn can_execute(&self) -> bool {
-        if self.instructions_per_tick == 0 { return true; }
+        if self.instructions_per_tick == 0 {
+            return true;
+        }
         self.instructions_executed < self.instructions_per_tick
     }
 
@@ -32,5 +34,7 @@ impl ClockController {
 }
 
 impl Default for ClockController {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }

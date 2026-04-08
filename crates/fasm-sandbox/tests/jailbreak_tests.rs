@@ -49,10 +49,7 @@ fn syscall_program(id: i32) -> Program {
     make_program(vec![
         Instruction::new(
             Opcode::Syscall,
-            vec![
-                Operand::SyscallId(id),
-                Operand::Imm(Immediate::Null),
-            ],
+            vec![Operand::SyscallId(id), Operand::Imm(Immediate::Null)],
         ),
         Instruction::no_args(Opcode::Halt),
     ])
@@ -211,10 +208,7 @@ fn test_division_by_zero_is_contained() {
 fn test_erroring_syscall_handler_is_contained() {
     let prog = syscall_program(200);
     let mut sandbox = Sandbox::new(0);
-    sandbox.mount_syscall(
-        200,
-        Box::new(|_, _| Err(fasm_vm::Fault::BadSyscall)),
-    );
+    sandbox.mount_syscall(200, Box::new(|_, _| Err(fasm_vm::Fault::BadSyscall)));
     let result = sandbox.run(&prog);
     assert!(
         result.is_err(),
@@ -297,9 +291,7 @@ mod seccomp_tests {
             sb.mount_syscall(
                 101,
                 Box::new(|_, _| {
-                    let fd = unsafe {
-                        libc::socket(libc::AF_INET, libc::SOCK_STREAM, 0)
-                    };
+                    let fd = unsafe { libc::socket(libc::AF_INET, libc::SOCK_STREAM, 0) };
                     if fd == -1 {
                         return Err(fasm_vm::Fault::BadSyscall);
                     }
@@ -339,9 +331,7 @@ mod seccomp_tests {
                     let path = CString::new("/bin/true").unwrap();
                     let argv = [path.as_ptr(), std::ptr::null()];
                     let envp: [*const libc::c_char; 1] = [std::ptr::null()];
-                    let ret = unsafe {
-                        libc::execve(path.as_ptr(), argv.as_ptr(), envp.as_ptr())
-                    };
+                    let ret = unsafe { libc::execve(path.as_ptr(), argv.as_ptr(), envp.as_ptr()) };
                     // execve only returns on failure.
                     assert_eq!(ret, -1, "execve should have failed");
                     let errno = unsafe { *libc::__errno_location() };
@@ -377,10 +367,7 @@ mod seccomp_tests {
                     ..Default::default()
                 },
             );
-            sb.mount_syscall(
-                103,
-                Box::new(|_, _| Ok(Value::Int32(42))),
-            );
+            sb.mount_syscall(103, Box::new(|_, _| Ok(Value::Int32(42))));
             sb.run(&prog)
         })
         .join()
@@ -411,7 +398,10 @@ mod seccomp_tests {
         .join()
         .expect("test thread panicked");
 
-        assert!(result.is_err(), "unmounted syscall must be rejected even with seccomp active");
+        assert!(
+            result.is_err(),
+            "unmounted syscall must be rejected even with seccomp active"
+        );
     }
 }
 
@@ -443,9 +433,7 @@ mod landlock_tests {
                     use std::ffi::CString;
                     // /etc/hostname is outside the allowed tmp directory.
                     let path = CString::new("/etc/hostname").unwrap();
-                    let fd = unsafe {
-                        libc::open(path.as_ptr(), libc::O_RDONLY)
-                    };
+                    let fd = unsafe { libc::open(path.as_ptr(), libc::O_RDONLY) };
                     if fd == -1 {
                         // Access denied by Landlock — this is the expected outcome.
                         return Err(fasm_vm::Fault::BadSyscall);

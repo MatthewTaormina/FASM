@@ -2,37 +2,37 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum FasmType {
-    Bool      = 0x01,
-    Int8      = 0x02,
-    Int16     = 0x03,
-    Int32     = 0x04,
-    Int64     = 0x05,
-    Uint8     = 0x06,
-    Uint16    = 0x07,
-    Uint32    = 0x08,
-    Uint64    = 0x09,
-    Float32   = 0x0A,
-    Float64   = 0x0B,
-    RefMut    = 0x10,
-    RefImm    = 0x11,
-    Vec       = 0x20,
-    Struct    = 0x21,
-    Stack     = 0x22,
-    Queue     = 0x23,
-    HeapMin   = 0x24,
-    HeapMax   = 0x25,
+    Bool = 0x01,
+    Int8 = 0x02,
+    Int16 = 0x03,
+    Int32 = 0x04,
+    Int64 = 0x05,
+    Uint8 = 0x06,
+    Uint16 = 0x07,
+    Uint32 = 0x08,
+    Uint64 = 0x09,
+    Float32 = 0x0A,
+    Float64 = 0x0B,
+    RefMut = 0x10,
+    RefImm = 0x11,
+    Vec = 0x20,
+    Struct = 0x21,
+    Stack = 0x22,
+    Queue = 0x23,
+    HeapMin = 0x24,
+    HeapMax = 0x25,
     // High-performance collections
-    Sparse    = 0x26,  // FxHashMap<u32, Value> — O(1) integer-keyed sparse array
-    BTree     = 0x27,  // BTreeMap<u32, Value>  — O(log n) ordered integer-keyed map
-    Slice     = 0x28,  // read-only sub-range view of a VEC
-    Deque     = 0x29,  // VecDeque — double-ended queue (prepend + append)
-    Bitset    = 0x2A,  // Vec<u8> bit-addressable boolean array
-    Bitvec    = 0x2B,  // Vec<u8> arbitrary-width bit field storage
+    Sparse = 0x26, // FxHashMap<u32, Value> — O(1) integer-keyed sparse array
+    BTree = 0x27,  // BTreeMap<u32, Value>  — O(log n) ordered integer-keyed map
+    Slice = 0x28,  // read-only sub-range view of a VEC
+    Deque = 0x29,  // VecDeque — double-ended queue (prepend + append)
+    Bitset = 0x2A, // Vec<u8> bit-addressable boolean array
+    Bitvec = 0x2B, // Vec<u8> arbitrary-width bit field storage
     // Wrappers
-    Option    = 0x30,
-    Result    = 0x31,
-    Future    = 0x32,
-    Null      = 0xFF,
+    Option = 0x30,
+    Result = 0x31,
+    Future = 0x32,
+    Null = 0xFF,
 }
 
 impl TryFrom<u8> for FasmType {

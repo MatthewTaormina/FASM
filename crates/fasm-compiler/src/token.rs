@@ -12,8 +12,8 @@ pub enum TokenKind {
 
     // Punctuation
     Comma,
-    Ampersand,   // & prefix for deref
-    Dot,         // for library.Function
+    Ampersand, // & prefix for deref
+    Dot,       // for library.Function
 
     // Comments consume their line, not emitted as tokens
     Eof,
@@ -26,5 +26,7 @@ pub struct Token {
 }
 
 impl Token {
-    pub fn new(kind: TokenKind, line: usize) -> Self { Self { kind, line } }
+    pub fn new(kind: TokenKind, line: usize) -> Self {
+        Self { kind, line }
+    }
 }
