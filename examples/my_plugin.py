@@ -1,8 +1,8 @@
 import sys
 import json
 
-def process_syscall(data):
-    sys.stderr.write("Received JSON: " + json.dumps(data) + "\n")
+def process_syscall(req_id, data):
+    sys.stderr.write(f"Received JSON for Syscall {req_id}: " + json.dumps(data) + "\n")
     sys.stderr.flush()
     if "Int32" in data:
         val = data["Int32"]
@@ -20,8 +20,8 @@ def main():
             continue
             
         try:
-            req = json.loads(line)
-            res = process_syscall(req)
+            req_id, data = json.loads(line)
+            res = process_syscall(req_id, data)
             sys.stdout.write(json.dumps(res) + "\n")
             sys.stdout.flush()
         except Exception as e:

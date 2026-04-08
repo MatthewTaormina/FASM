@@ -1,14 +1,15 @@
 import sys
+import json
 
 def main():
-    # Pure generic ping-pong server.
-    # Reads a line from STDIN, immediately writes it to STDOUT.
-    # This measures absolute theoretical IPC limit.
     while True:
         line = sys.stdin.readline()
         if not line:
             break
-        sys.stdout.write(line)
+        # FASM sends: [req_id, value]
+        req_id, data = json.loads(line)
+        # FASM expects back: value
+        sys.stdout.write(json.dumps(data) + "\n")
         sys.stdout.flush()
 
 if __name__ == "__main__":

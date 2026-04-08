@@ -157,18 +157,24 @@ fn parse_plugins(args: &[String], sandbox: &mut Sandbox) {
     while let Some(arg) = iter.next() {
         if arg == "--plugin" {
             if let Some(val) = iter.next() {
-                // format: ID:CMD:ARGS...
                 let parts: Vec<&str> = val.split(':').collect();
                 if parts.len() >= 2 {
-                    if let Ok(id) = parts[0].parse::<i32>() {
+                    let id_strs: Vec<&str> = parts[0].split(',').collect();
+                    let mut ids = Vec::new();
+                    for s in id_strs {
+                        if let Ok(id) = s.parse::<i32>() {
+                            ids.push(id);
+                        } else {
+                            eprintln!("Invalid plugin ID: {}", s);
+                        }
+                    }
+                    if !ids.is_empty() {
                         let cmd = parts[1];
                         let cmd_args = &parts[2..];
-                        sandbox.mount_sidecar(id, cmd, cmd_args);
-                    } else {
-                        eprintln!("Invalid plugin ID: {}", parts[0]);
+                        sandbox.mount_shared_sidecar(&ids, cmd, cmd_args);
                     }
                 } else {
-                    eprintln!("Invalid plugin format. Use --plugin ID:CMD:ARG1:ARG2");
+                    eprintln!("Invalid plugin format. Use --plugin ID1,ID2:CMD:ARG1:ARG2");
                 }
             }
         }

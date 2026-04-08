@@ -18,11 +18,11 @@ impl SidecarPlugin {
         Self { child }
     }
 
-    pub fn call(&mut self, arg: &Value) -> Result<Value, Fault> {
+    pub fn call(&mut self, id: i32, arg: &Value) -> Result<Value, Fault> {
         let mut stdin = self.child.stdin.take().expect("Failed to open stdin");
         
-        // Serialize input args to JSON
-        let req_json = serde_json::to_string(arg)
+        // Serialize input args to JSON tuple: [id, arg]
+        let req_json = serde_json::to_string(&(id, arg))
             .unwrap_or_else(|_| "null".to_string());
             
         // Write out (add newline so sidecar can readline)
