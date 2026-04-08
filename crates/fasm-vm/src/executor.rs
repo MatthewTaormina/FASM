@@ -174,9 +174,22 @@ impl Executor {
         self.syscalls.insert(id, handler);
     }
 
-    /// Run a full program starting from Main.
+    /// Run a full program starting from `Main` with an empty args struct.
     pub fn run(&mut self, program: &Program) -> Result<Value, String> {
-        // Execute global inits
+        let _ = program.get_function("Main")
+            .ok_or("No 'Main' function found in program")?;
+        self.run_named(program, "Main", Value::Struct(FasmStruct::default()))
+    }
+
+    /// Run a full program starting from a named entry-point function.
+    ///
+    /// `args` is passed as the function's `$args` struct, enabling HTTP handlers,
+    /// scheduled tasks, and event handlers to be regular FASM functions with typed
+    /// `PARAM` declarations. Global variables are initialised before the call.
+    pub fn run_named(&mut self, program: &Program, func: &str, args: Value) -> Result<Value, String> {
+        // Execute global inits (idempotent — engine may call multiple handlers
+        // on the same executor instance, re-running inits is harmless because
+        // Reserve is a set, not an append).
         for instr in &program.global_inits {
             if let Opcode::Reserve = instr.opcode {
                 if let (Some(Operand::Key(idx)), Some(Operand::Type(t)), Some(init)) =
@@ -188,20 +201,20 @@ impl Executor {
             }
         }
 
-        let _ = program.get_function("Main")
-            .ok_or("No 'Main' function found in program")?;
+        let _ = program.get_function(func)
+            .ok_or_else(|| format!("No '{}' function found in program", func))?;
 
-        self.call_stack.push(CallFrame::new("Main".into(), Value::Struct(FasmStruct::default())));
+        self.call_stack.push(CallFrame::new(func.to_string(), args));
 
         loop {
             let frame_idx = self.call_stack.len() - 1;
             let ip = self.call_stack[frame_idx].ip;
             let func_name = self.call_stack[frame_idx].func_name.clone();
 
-            let func = program.get_function(&func_name)
+            let func_def = program.get_function(&func_name)
                 .ok_or_else(|| format!("Function '{}' not found", func_name))?;
 
-            if ip >= func.instructions.len() {
+            if ip >= func_def.instructions.len() {
                 // Implicit HALT / void return at ENDF
                 let ret = self.call_stack.last().map(|f| f.ret_val.clone()).unwrap_or(Value::Null);
                 self.call_stack.pop();
@@ -213,7 +226,7 @@ impl Executor {
                 continue;
             }
 
-            let instr = func.instructions[ip].clone();
+            let instr = func_def.instructions[ip].clone();
             self.call_stack[frame_idx].ip += 1;
 
             match self.execute_instruction(&instr, program) {
@@ -256,9 +269,9 @@ impl Executor {
                         let frame = &mut self.call_stack.last_mut().unwrap().frame;
                         frame.restore(g.frame_snap);
                         self.globals.restore(g.global_snap);
-                        // Set $fault_code and $fault_index
+                        // Set $fault_code via $ret
                         let cf = self.call_stack.last_mut().unwrap();
-                        cf.ret_val = Value::Uint32(fault.code());  // $fault_code via $ret
+                        cf.ret_val = Value::Uint32(fault.code());
                         cf.ip = g.catch_ip;
                     } else {
                         return Err(format!("Unhandled fault in '{}' at ip {}: {}", func_name, ip, fault));
