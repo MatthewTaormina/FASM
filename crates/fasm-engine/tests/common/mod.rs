@@ -12,7 +12,7 @@ use std::{net::SocketAddr, path::PathBuf, time::Duration};
 use tokio::task::JoinHandle;
 
 use fasm_engine::{
-    config::{EngineConfig, EngineSettings, PluginsConfig, RouteConfig, ServerConfig},
+    config::{EngineConfig, EngineSettings, PluginsConfig, RouteConfig, ServerConfig, StorageConfig},
     engine::run_with_listener,
 };
 
@@ -34,6 +34,7 @@ impl TestEngine {
             server:    ServerConfig  { host: "127.0.0.1".into(), port: 0 },
             engine:    EngineSettings { max_concurrent, hot_reload: false, clock_hz: 0 },
             plugins:   PluginsConfig { discovery_dir: None },
+            storage:   StorageConfig::default(),
             routes,
             schedules: vec![],
             queues:    vec![],
