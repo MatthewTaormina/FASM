@@ -219,6 +219,15 @@ impl Executor {
                             }
                             self.call_stack.push(CallFrame::new(name, args));
                         }
+                        Action::TailCall(name, args) => {
+                            let frame = self.call_stack.last_mut().unwrap();
+                            frame.func_name = name;
+                            frame.ip = 0;
+                            frame.frame = Frame::new();
+                            frame.args = args;
+                            frame.ret_val = Value::Null;
+                            // Keep try_guard active so try bounds transcend TCO safely.
+                        }
                         Action::Return(val) => {
                             self.call_stack.pop();
                             if self.call_stack.is_empty() {
@@ -356,6 +365,21 @@ impl Executor {
                 let r = a.rem(&b).ok_or(Fault::TypeMismatch)?;
                 write_val!(get_op!(2), r);
                 Ok(Action::Continue)
+            }
+            Opcode::Call | Opcode::AsyncCall | Opcode::TailCall => {
+                let func_idx = match get_op!(0) {
+                    Operand::FuncRef(idx) => *idx,
+                    _ => return Err(Fault::TypeMismatch),
+                };
+                let name = program.functions.get(func_idx as usize)
+                    .ok_or(Fault::UndeclaredSlot)?.name.clone();
+                let args = read_val!(get_op!(1));
+                
+                if instr.opcode == Opcode::TailCall {
+                    Ok(Action::TailCall(name.clone(), args))
+                } else {
+                    Ok(Action::CallFunc(name.clone(), args))
+                }
             }
             Opcode::Neg => {
                 let a = read_val!(get_op!(0));
@@ -931,6 +955,7 @@ enum Action {
     Continue,
     Jump(usize),
     CallFunc(String, Value),
+    TailCall(String, Value),
     Return(Value),
     Halt,
 }

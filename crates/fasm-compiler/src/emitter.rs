@@ -295,13 +295,17 @@ fn emit_instr(instr: &Instr, out: &mut Vec<Instruction>, ctx: &mut FuncCtx) -> R
             out.push(Instruction { opcode: Opcode::Jnz, operands: vec![cond, tgt] });
             return Ok(());
         }
-        "CALL" | "ASYNC_CALL" => {
+        "CALL" | "ASYNC_CALL" | "TAIL_CALL" => {
             let func_name = ast_ident(op!(0))?;
             let func_idx = ctx.func_index_map.get(&func_name)
                 .copied()
                 .ok_or_else(|| format!("Line {}: undefined function '{}'", ln, func_name))?;
             let args_op = val_op!(1);
-            let opcode = if instr.mnemonic == "CALL" { Opcode::Call } else { Opcode::AsyncCall };
+            let opcode = match instr.mnemonic.as_str() {
+                "CALL" => Opcode::Call,
+                "TAIL_CALL" => Opcode::TailCall,
+                _ => Opcode::AsyncCall,
+            };
             out.push(Instruction { opcode, operands: vec![Operand::FuncRef(func_idx), args_op] });
             return Ok(());
         }

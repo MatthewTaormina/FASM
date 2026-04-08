@@ -1,0 +1,42 @@
+DEFINE ARG_N, 0
+
+FUNC CountDown
+    PARAM ARG_N, INT32, count, REQUIRED
+
+    LOCAL 0, BOOL,   is_done
+    LOCAL 1, INT32,  counter
+    LOCAL 2, STRUCT, next_args
+
+    GET_FIELD $args, ARG_N, counter
+    LTE counter, 0, is_done
+    JNZ is_done, Finished
+
+    SUB counter, 1, counter
+    RESERVE 2, STRUCT, NULL
+    SET_FIELD next_args, ARG_N, counter
+
+    // Using TAIL_CALL prevents the 512 Stack Recursion boundary!
+    TAIL_CALL CountDown, next_args
+    RET $ret
+
+    LABEL Finished
+    RET 42
+ENDF
+
+FUNC Main
+    LOCAL 0, INT32,  answer
+    LOCAL 1, STRUCT, args
+    LOCAL 2, STRUCT, print_args
+
+    RESERVE 1, STRUCT, NULL
+    
+    // 10,000 loops. Standard CALL overflows at 512!
+    SET_FIELD args, ARG_N, 10000 
+    
+    CALL CountDown, args
+    MOV $ret, answer
+
+    RESERVE 2, STRUCT, NULL
+    SET_FIELD print_args, 0, answer
+    SYSCALL 0, print_args
+ENDF
