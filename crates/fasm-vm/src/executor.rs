@@ -18,7 +18,7 @@ struct TryGuard {
     catch_ip: usize,         // instruction index of CATCH
     end_ip: usize,           // instruction index of ENDTRY
     frame_snap: Vec<Option<Value>>,
-    global_snap: HashMap<u32, Value>,
+    global_snap: Vec<Option<Value>>,
 }
 
 /// One entry on the call stack.
@@ -69,7 +69,7 @@ impl Executor {
         // 0 = PRINT: struct key 0 = value to print
         self.syscalls.insert(0, Box::new(|args, _globals| {
             if let Value::Struct(s) = &args {
-                let v = s.0.get(&0).cloned().unwrap_or(Value::Null);
+                let v = s.get(&0).cloned().unwrap_or(Value::Null);
                 println!("{}", v.display());
             }
             Ok(Value::Null)
@@ -77,7 +77,7 @@ impl Executor {
         // 1 = PRINT_VEC: struct key 0 = VEC to print as text
         self.syscalls.insert(1, Box::new(|args, _globals| {
             if let Value::Struct(s) = &args {
-                let v = s.0.get(&0).cloned().unwrap_or(Value::Null);
+                let v = s.get(&0).cloned().unwrap_or(Value::Null);
                 print!("{}", v.display());
             }
             Ok(Value::Null)
@@ -94,7 +94,7 @@ impl Executor {
         // 3 = EXIT: struct key 0 = exit code
         self.syscalls.insert(3, Box::new(|args, _globals| {
             let code = if let Value::Struct(s) = &args {
-                match s.0.get(&0) {
+                match s.get(&0) {
                     Some(Value::Int32(n)) => *n,
                     _ => 0,
                 }
@@ -108,7 +108,7 @@ impl Executor {
         self.syscalls.insert(4, Box::new(|args, _globals| {
             const ERR_BAD_INPUT: u32 = 1;
             let bytes = if let Value::Struct(s) = &args {
-                match s.0.get(&0) {
+                match s.get(&0) {
                     Some(Value::Vec(v)) => v.0.clone(),
                     _ => return Ok(Value::Result(Box::new(FasmResult::Err(ERR_BAD_INPUT)))),
                 }
@@ -598,7 +598,7 @@ impl Executor {
                 let key = self.read_key_operand(get_op!(1))?;
                 let coll = read_val!(get_op!(0));
                 let val = match &coll {
-                    Value::Struct(s) => s.0.get(&key).cloned().ok_or(Fault::FieldNotFound)?,
+                    Value::Struct(s) => s.get(&key).cloned().ok_or(Fault::FieldNotFound)?,
                     _ => return Err(Fault::TypeMismatch),
                 };
                 write_val!(get_op!(2), val);
@@ -609,7 +609,7 @@ impl Executor {
                 let val = read_val!(get_op!(2));
                 let coll = self.write_target_mut(get_op!(0))?;
                 match coll {
-                    Value::Struct(s) => { s.0.insert(key, val); }
+                    Value::Struct(s) => { s.insert(key, val); }
                     _ => return Err(Fault::TypeMismatch),
                 }
                 Ok(Action::Continue)
@@ -618,7 +618,7 @@ impl Executor {
                 let key = self.read_key_operand(get_op!(1))?;
                 let coll = read_val!(get_op!(0));
                 let has = match &coll {
-                    Value::Struct(s) => s.0.contains_key(&key),
+                    Value::Struct(s) => s.contains_key(&key),
                     _ => return Err(Fault::TypeMismatch),
                 };
                 write_val!(get_op!(2), Value::Bool(has));
@@ -628,7 +628,7 @@ impl Executor {
                 let key = self.read_key_operand(get_op!(1))?;
                 let coll = self.write_target_mut(get_op!(0))?;
                 match coll {
-                    Value::Struct(s) => { s.0.remove(&key); }
+                    Value::Struct(s) => { s.remove(&key); }
                     _ => return Err(Fault::TypeMismatch),
                 }
                 Ok(Action::Continue)

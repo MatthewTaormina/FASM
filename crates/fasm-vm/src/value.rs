@@ -40,7 +40,31 @@ pub enum Value {
 pub struct FasmVec(pub Vec<Value>);
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct FasmStruct(pub HashMap<u32, Value>);
+pub struct FasmStruct(pub Vec<(u32, Value)>);
+
+impl FasmStruct {
+    pub fn get(&self, key: &u32) -> Option<&Value> {
+        self.0.iter().find(|(k, _)| k == key).map(|(_, v)| v)
+    }
+    
+    pub fn insert(&mut self, key: u32, val: Value) {
+        if let Some(existing) = self.0.iter_mut().find(|(k, _)| *k == key) {
+            existing.1 = val;
+        } else {
+            self.0.push((key, val));
+        }
+    }
+    
+    pub fn contains_key(&self, key: &u32) -> bool {
+        self.0.iter().any(|(k, _)| k == key)
+    }
+    
+    pub fn remove(&mut self, key: &u32) {
+        if let Some(idx) = self.0.iter().position(|(k, _)| k == key) {
+            self.0.remove(idx);
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct FasmStack(pub Vec<Value>);

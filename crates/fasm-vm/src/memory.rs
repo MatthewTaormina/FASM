@@ -47,33 +47,39 @@ impl Frame {
 /// Global register — unlimited slots indexed by u32.
 #[derive(Debug, Clone, Default)]
 pub struct GlobalRegister {
-    slots: HashMap<u32, Value>,
+    slots: Vec<Option<Value>>,
 }
 
 impl GlobalRegister {
-    pub fn new() -> Self { Self { slots: HashMap::new() } }
+    pub fn new() -> Self { Self { slots: Vec::new() } }
 
     pub fn set(&mut self, index: u32, value: Value) {
-        self.slots.insert(index, value);
+        let idx = index as usize;
+        if idx >= self.slots.len() {
+            self.slots.resize(idx + 1, None);
+        }
+        self.slots[idx] = Some(value);
     }
 
     pub fn get(&self, index: u32) -> Option<&Value> {
-        self.slots.get(&index)
+        self.slots.get(index as usize)?.as_ref()
     }
 
     pub fn get_mut(&mut self, index: u32) -> Option<&mut Value> {
-        self.slots.get_mut(&index)
+        self.slots.get_mut(index as usize)?.as_mut()
     }
 
     pub fn remove(&mut self, index: u32) {
-        self.slots.remove(&index);
+        if let Some(slot) = self.slots.get_mut(index as usize) {
+            *slot = None;
+        }
     }
 
-    pub fn snapshot(&self) -> HashMap<u32, Value> {
+    pub fn snapshot(&self) -> Vec<Option<Value>> {
         self.slots.clone()
     }
 
-    pub fn restore(&mut self, snap: HashMap<u32, Value>) {
+    pub fn restore(&mut self, snap: Vec<Option<Value>>) {
         self.slots = snap;
     }
 }
