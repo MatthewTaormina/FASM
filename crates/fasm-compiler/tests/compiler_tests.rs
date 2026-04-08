@@ -1,8 +1,8 @@
 //! Integration tests for fasm-compiler: lexer, validator, and end-to-end pipeline.
 
-use fasm_compiler::{compile_source, lexer::tokenize, validator::validate};
 use fasm_compiler::parser::parse;
 use fasm_compiler::token::TokenKind;
+use fasm_compiler::{compile_source, lexer::tokenize, validator::validate};
 
 // ── Lexer tests ───────────────────────────────────────────────────────────────
 // Note: the lexer always appends an EOF token at the end of the output.
@@ -131,7 +131,10 @@ fn test_validator_rejects_missing_main() {
     let ast = parse_src("FUNC Helper\n    RET\nENDF\n");
     let result = validate(&ast);
     assert!(result.is_err());
-    assert!(result.unwrap_err().contains("Main"), "error must mention 'Main'");
+    assert!(
+        result.unwrap_err().contains("Main"),
+        "error must mention 'Main'"
+    );
 }
 
 #[test]
@@ -224,7 +227,11 @@ ENDF
     let result = compile_source(src);
     assert!(result.is_err());
     let msg = result.unwrap_err();
-    assert!(msg.contains("TMP_BLOCK") || msg.contains("jump"), "error: {}", msg);
+    assert!(
+        msg.contains("TMP_BLOCK") || msg.contains("jump"),
+        "error: {}",
+        msg
+    );
 }
 
 #[test]

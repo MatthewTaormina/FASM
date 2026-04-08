@@ -458,7 +458,10 @@ mod tests {
     fn test_slot_local_round_trip() {
         let instr = Instruction::new(Opcode::Mov, vec![Operand::Slot(SlotRef::Local(7))]);
         let rt = round_trip(&simple_program(vec![instr]));
-        assert_eq!(rt.functions[0].instructions[0].operands[0], Operand::Slot(SlotRef::Local(7)));
+        assert_eq!(
+            rt.functions[0].instructions[0].operands[0],
+            Operand::Slot(SlotRef::Local(7))
+        );
     }
 
     #[test]
@@ -475,7 +478,10 @@ mod tests {
     fn test_slot_tmp_round_trip() {
         let instr = Instruction::new(Opcode::Mov, vec![Operand::Slot(SlotRef::Tmp(3))]);
         let rt = round_trip(&simple_program(vec![instr]));
-        assert_eq!(rt.functions[0].instructions[0].operands[0], Operand::Slot(SlotRef::Tmp(3)));
+        assert_eq!(
+            rt.functions[0].instructions[0].operands[0],
+            Operand::Slot(SlotRef::Tmp(3))
+        );
     }
 
     #[test]
@@ -493,7 +499,12 @@ mod tests {
 
     #[test]
     fn test_builtin_slots_round_trip() {
-        for builtin in [BuiltIn::Args, BuiltIn::Ret, BuiltIn::FaultIndex, BuiltIn::FaultCode] {
+        for builtin in [
+            BuiltIn::Args,
+            BuiltIn::Ret,
+            BuiltIn::FaultIndex,
+            BuiltIn::FaultCode,
+        ] {
             let op = Operand::Slot(SlotRef::BuiltIn(builtin));
             let instr = Instruction::new(Opcode::Mov, vec![op.clone()]);
             let rt = round_trip(&simple_program(vec![instr]));
@@ -647,7 +658,7 @@ mod tests {
         bytes.push(0x01); // version
         bytes.extend_from_slice(&0u32.to_le_bytes()); // 0 global inits
         bytes.extend_from_slice(&1u32.to_le_bytes()); // 1 function
-        // function name "Main"
+                                                      // function name "Main"
         let name = b"Main";
         bytes.extend_from_slice(&(name.len() as u16).to_le_bytes());
         bytes.extend_from_slice(name);

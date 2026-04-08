@@ -1811,7 +1811,8 @@ ENDF
     #[test]
     fn test_lt_gt_lte_gte() {
         let run_cmp = |op: &str, lhs: i32, rhs: i32| -> Value {
-            let src = format!("
+            let src = format!(
+                "
 FUNC Main
     LOCAL 0, INT32, a
     LOCAL 1, INT32, b
@@ -1821,7 +1822,8 @@ FUNC Main
     {op} a, b, r
     RET r
 ENDF
-");
+"
+            );
             run(&src)
         };
         assert_eq!(run_cmp("LT", 3, 5), Value::Bool(true));
