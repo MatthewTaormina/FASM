@@ -43,7 +43,10 @@ pub struct ServerConfig {
 
 impl Default for ServerConfig {
     fn default() -> Self {
-        Self { host: default_host(), port: default_port() }
+        Self {
+            host: default_host(),
+            port: default_port(),
+        }
     }
 }
 
@@ -67,7 +70,10 @@ pub struct StorageConfig {
 
 impl Default for StorageConfig {
     fn default() -> Self {
-        Self { data_dir: default_data_dir(), admin_token: None }
+        Self {
+            data_dir: default_data_dir(),
+            admin_token: None,
+        }
     }
 }
 
@@ -82,6 +88,15 @@ pub struct EngineSettings {
     /// Clock limit per sandbox execution (0 = unlimited).
     #[serde(default)]
     pub clock_hz: u64,
+    /// Enable seccomp-BPF syscall denylist on execution threads (Linux only).
+    #[serde(default)]
+    pub enable_seccomp: bool,
+    /// Enable Landlock filesystem restrictions on execution threads (Linux only).
+    #[serde(default)]
+    pub enable_landlock: bool,
+    /// Filesystem paths the execution thread is allowed to read under Landlock.
+    #[serde(default)]
+    pub landlock_allowed_read_paths: Vec<std::path::PathBuf>,
 }
 
 impl Default for EngineSettings {
@@ -90,6 +105,9 @@ impl Default for EngineSettings {
             max_concurrent: default_max_concurrent(),
             hot_reload: false,
             clock_hz: 0,
+            enable_seccomp: false,
+            enable_landlock: false,
+            landlock_allowed_read_paths: Vec::new(),
         }
     }
 }
@@ -123,17 +141,14 @@ pub struct ScheduleConfig {
     pub misfire_policy: MisfirePolicy,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum MisfirePolicy {
     /// Skip the fired tick (default).
+    #[default]
     Skip,
     /// Run the tick even if a previous one is still in flight.
     RunAll,
-}
-
-impl Default for MisfirePolicy {
-    fn default() -> Self { MisfirePolicy::Skip }
 }
 
 // ── Queue ─────────────────────────────────────────────────────────────────────
@@ -171,14 +186,30 @@ pub struct EventConfig {
 
 // ── defaults ─────────────────────────────────────────────────────────────────
 
-fn default_host()           -> String { "0.0.0.0".to_string() }
-fn default_port()           -> u16    { 8080 }
-fn default_max_concurrent() -> usize  { 256 }
-fn default_misfire()        -> MisfirePolicy { MisfirePolicy::Skip }
-fn default_queue_type()     -> QueueType { QueueType::Shared }
-fn default_max_retries()    -> u32 { 3 }
-fn default_timeout_secs()   -> u64 { 30 }
-fn default_data_dir()       -> PathBuf { PathBuf::from("data") }
+fn default_host() -> String {
+    "0.0.0.0".to_string()
+}
+fn default_port() -> u16 {
+    8080
+}
+fn default_max_concurrent() -> usize {
+    256
+}
+fn default_misfire() -> MisfirePolicy {
+    MisfirePolicy::Skip
+}
+fn default_queue_type() -> QueueType {
+    QueueType::Shared
+}
+fn default_max_retries() -> u32 {
+    3
+}
+fn default_timeout_secs() -> u64 {
+    30
+}
+fn default_data_dir() -> PathBuf {
+    PathBuf::from("data")
+}
 
 // ── loader ────────────────────────────────────────────────────────────────────
 
@@ -186,6 +217,5 @@ fn default_data_dir()       -> PathBuf { PathBuf::from("data") }
 pub fn load(path: &std::path::Path) -> Result<EngineConfig, String> {
     let raw = std::fs::read_to_string(path)
         .map_err(|e| format!("cannot read config {:?}: {}", path, e))?;
-    toml::from_str(&raw)
-        .map_err(|e| format!("config parse error: {}", e))
+    toml::from_str(&raw).map_err(|e| format!("config parse error: {}", e))
 }

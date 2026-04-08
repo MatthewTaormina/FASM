@@ -7,7 +7,9 @@ pub struct Frame {
 }
 
 impl Frame {
-    pub fn new() -> Self { Self { slots: Vec::new() } }
+    pub fn new() -> Self {
+        Self { slots: Vec::new() }
+    }
 
     /// Grow the slot vector if needed and set a value.
     pub fn set(&mut self, index: u8, value: Value) {
@@ -44,17 +46,14 @@ impl Frame {
 }
 
 /// Transient execution frame for TMP blocks (t0-t15).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct TmpFrame {
     pub slots: [Option<Value>; 16],
 }
-impl Default for TmpFrame {
-    fn default() -> Self {
-        Self { slots: Default::default() }
-    }
-}
 impl TmpFrame {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 }
 
 /// Global register — unlimited slots indexed by u32.
@@ -64,7 +63,9 @@ pub struct GlobalRegister {
 }
 
 impl GlobalRegister {
-    pub fn new() -> Self { Self { slots: Vec::new() } }
+    pub fn new() -> Self {
+        Self { slots: Vec::new() }
+    }
 
     pub fn set(&mut self, index: u32, value: Value) {
         let idx = index as usize;

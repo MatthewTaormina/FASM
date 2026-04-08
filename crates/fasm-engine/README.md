@@ -200,6 +200,8 @@ port = 8080         # default
 [engine]
 max_concurrent = 256   # max parallel FASM executions (default: 256)
 clock_hz       = 0     # instruction rate limit, 0 = unlimited
+enable_seccomp  = true  # install seccomp-BPF denylist on execution threads (Linux only)
+enable_landlock = true  # restrict filesystem access via Landlock (Linux ≥ 5.13 only)
 
 [storage]
 data_dir    = "data"   # relative to config file location (default: "data")
@@ -258,7 +260,23 @@ cargo test -p fasm-engine --test engine_integration_test
 
 # Load + memory test (50 callers × 100 req, P99 < 2s, RSS delta < 256MB)
 cargo test -p fasm-engine --test load_test -- --nocapture --ignored
+
+# Sandbox jailbreak / isolation tests (VM, seccomp, Landlock)
+cargo test -p fasm-sandbox --test jailbreak_tests
 ```
+
+### Sandbox isolation
+
+Every FASM function dispatched by the engine runs inside a `fasm_sandbox::Sandbox`
+that enforces three layers of protection:
+
+| Layer | Platforms | What it prevents |
+|---|---|---|
+| VM isolation | All | Un-granted capability access, infinite recursion, type faults, cross-sandbox state leaks |
+| Seccomp-BPF | Linux | `fork`, `execve`, `socket`, `ptrace`, namespace escapes, and other dangerous syscalls inside handlers |
+| Landlock | Linux ≥ 5.13 | Read/write access to filesystem paths outside the configured allow-list |
+
+See [`crates/fasm-sandbox/README.md`](../fasm-sandbox/README.md) for the full isolation reference and the jailbreak test suite.
 
 ---
 

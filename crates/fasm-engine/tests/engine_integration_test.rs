@@ -16,7 +16,11 @@ async fn test_ping_returns_200_json() {
     let resp = engine.get("/ping").await;
     assert_eq!(resp.status().as_u16(), 200, "expected HTTP 200");
     let body: serde_json::Value = resp.json().await.expect("JSON body");
-    assert_eq!(body, serde_json::json!(200), "Ping handler must return Int32(200)");
+    assert_eq!(
+        body,
+        serde_json::json!(200),
+        "Ping handler must return Int32(200)"
+    );
 }
 
 #[tokio::test]
@@ -58,11 +62,16 @@ async fn test_metrics_endpoint_returns_prometheus_text() {
     let _ = engine.get("/ping").await;
     let resp = engine.get("/metrics").await;
     assert_eq!(resp.status().as_u16(), 200);
-    let ct = resp.headers()
+    let ct = resp
+        .headers()
         .get("content-type")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    assert!(ct.contains("text/plain"), "content-type must be text/plain, got: {}", ct);
+    assert!(
+        ct.contains("text/plain"),
+        "content-type must be text/plain, got: {}",
+        ct
+    );
     let body = resp.text().await.unwrap();
     assert!(
         body.contains("fasm_invocations"),
@@ -75,11 +84,16 @@ async fn test_admin_queues_returns_json() {
     let engine = TestEngine::start_fixtures(128).await;
     let resp = engine.get("/admin/queues").await;
     assert_eq!(resp.status().as_u16(), 200);
-    let ct = resp.headers()
+    let ct = resp
+        .headers()
         .get("content-type")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    assert!(ct.contains("application/json"), "expected JSON, got: {}", ct);
+    assert!(
+        ct.contains("application/json"),
+        "expected JSON, got: {}",
+        ct
+    );
 }
 
 // ── Overload / back-pressure ──────────────────────────────────────────────────
@@ -175,23 +189,27 @@ async fn test_concurrent_echo_no_cross_contamination() {
         .unwrap();
 
     let words: Vec<String> = (0..50).map(|i| format!("word{:04}", i)).collect();
-    let futs: Vec<_> = words.iter().map(|w| {
-        let c = client.clone();
-        let url = format!("{}/echo/{}", base, w);
-        let expected = w.clone();
-        tokio::spawn(async move {
-            let r = c.get(&url).send().await?;
-            let body = r.text().await?;
-            Ok::<(String, String), reqwest::Error>((expected, body))
+    let futs: Vec<_> = words
+        .iter()
+        .map(|w| {
+            let c = client.clone();
+            let url = format!("{}/echo/{}", base, w);
+            let expected = w.clone();
+            tokio::spawn(async move {
+                let r = c.get(&url).send().await?;
+                let body = r.text().await?;
+                Ok::<(String, String), reqwest::Error>((expected, body))
+            })
         })
-    }).collect();
+        .collect();
 
     for f in futs {
         let (expected, body) = f.await.unwrap().unwrap();
         assert!(
             body.contains(&expected),
             "echo mismatch: expected '{}' in body '{}' — possible cross-contamination!",
-            expected, body
+            expected,
+            body
         );
     }
 }

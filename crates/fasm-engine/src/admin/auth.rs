@@ -1,10 +1,13 @@
 //! Auth helper — checks `X-Admin-Token` header against config.
 
-use axum::{http::{HeaderMap, StatusCode}, response::{IntoResponse, Response}};
 use crate::http_handler::AppState;
+use axum::{
+    http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
+};
 
-/// Returns `Ok(())` if auth passes, `Err(Response)` (401) if it fails.
-pub fn require_auth(headers: &HeaderMap, state: &AppState) -> Result<(), Response> {
+/// Returns `Ok(())` if auth passes, `Err(Box<Response>)` (401) if it fails.
+pub fn require_auth(headers: &HeaderMap, state: &AppState) -> Result<(), Box<Response>> {
     let Some(expected) = &state.admin_token else {
         return Ok(()); // no token configured → open
     };
@@ -15,6 +18,8 @@ pub fn require_auth(headers: &HeaderMap, state: &AppState) -> Result<(), Respons
     if provided == expected {
         Ok(())
     } else {
-        Err((StatusCode::UNAUTHORIZED, "invalid or missing X-Admin-Token").into_response())
+        Err(Box::new(
+            (StatusCode::UNAUTHORIZED, "invalid or missing X-Admin-Token").into_response(),
+        ))
     }
 }

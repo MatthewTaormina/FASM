@@ -8,12 +8,12 @@
 //!    subscriber queues.
 //! 4. When an execution ends its private queue is dropped automatically.
 
+use crate::queues::PrivateQueue;
+use serde_json::Value as JsonValue;
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
 };
-use serde_json::Value as JsonValue;
-use crate::queues::PrivateQueue;
 
 // ── Topic ─────────────────────────────────────────────────────────────────────
 
@@ -38,7 +38,10 @@ impl TopicInner {
     fn subscribe(&mut self, execution_id: String, q: PrivateQueue) {
         // Remove any stale entry for this execution first.
         self.subscribers.retain(|s| s.execution_id != execution_id);
-        self.subscribers.push(Subscriber { execution_id, queue: q });
+        self.subscribers.push(Subscriber {
+            execution_id,
+            queue: q,
+        });
     }
 
     fn unsubscribe(&mut self, execution_id: &str) {
@@ -56,7 +59,9 @@ impl TopicInner {
 pub struct PubSubRegistry(Arc<Mutex<HashMap<String, TopicInner>>>);
 
 impl PubSubRegistry {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     /// Create a topic if it doesn't already exist.
     pub fn create_topic(&self, topic: &str) {
@@ -82,7 +87,9 @@ impl PubSubRegistry {
     /// The topic is auto-created if it does not yet exist.
     pub fn subscribe(&self, topic: &str, execution_id: String, q: PrivateQueue) {
         let mut g = self.0.lock().unwrap();
-        g.entry(topic.to_string()).or_default().subscribe(execution_id, q);
+        g.entry(topic.to_string())
+            .or_default()
+            .subscribe(execution_id, q);
     }
 
     /// Remove an execution's subscription from all topics (called on execution end).
@@ -114,7 +121,10 @@ mod tests {
 
         let count = registry.publish("events", &serde_json::json!({"msg": "hello"}));
         assert_eq!(count, 1);
-        assert!(q.try_recv().is_some(), "subscriber queue should have a message");
+        assert!(
+            q.try_recv().is_some(),
+            "subscriber queue should have a message"
+        );
     }
 
     #[test]

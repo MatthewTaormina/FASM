@@ -6,13 +6,11 @@
 //! 3. Either awaits the result (`spawn_async`) or fires-and-forgets (`spawn_fire_and_forget`).
 //! 4. Records metrics on completion.
 
-use std::sync::Arc;
-use tokio::sync::Semaphore;
 use fasm_bytecode::Program;
 use fasm_sandbox::{Sandbox, SandboxConfig};
 use fasm_vm::Value;
-use fasm_vm::value::FasmStruct;
-use uuid::Uuid;
+use std::sync::Arc;
+use tokio::sync::Semaphore;
 
 use crate::metrics::MetricsRegistry;
 
@@ -22,11 +20,11 @@ use crate::metrics::MetricsRegistry;
 #[derive(Clone)]
 pub struct ExecRequest {
     /// Name of the FASM function to invoke.
-    pub func:    String,
+    pub func: String,
     /// Compiled program containing the function.
     pub program: Arc<Program>,
     /// Initial `$args` struct passed to the function.
-    pub args:    Value,
+    pub args: Value,
     /// Friendly trigger label for metrics/logs (e.g. `"http"`, `"schedule"`, `"queue"`).
     pub trigger: String,
 }
@@ -46,7 +44,7 @@ pub enum EngineError {
 impl std::fmt::Display for EngineError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            EngineError::Overloaded    => write!(f, "engine overloaded"),
+            EngineError::Overloaded => write!(f, "engine overloaded"),
             EngineError::FasmFault(e) => write!(f, "fasm fault: {}", e),
             EngineError::JoinError(e) => write!(f, "join error: {}", e),
         }
@@ -57,8 +55,8 @@ impl std::fmt::Display for EngineError {
 
 #[derive(Clone)]
 pub struct TaskDispatcher {
-    semaphore:      Arc<Semaphore>,
-    metrics:        MetricsRegistry,
+    semaphore: Arc<Semaphore>,
+    metrics: MetricsRegistry,
     sandbox_config: Arc<SandboxConfig>,
 }
 
@@ -68,9 +66,9 @@ impl TaskDispatcher {
     }
 
     pub fn new_with_config(
-        max_concurrent:  usize,
-        metrics:         MetricsRegistry,
-        sandbox_config:  Arc<SandboxConfig>,
+        max_concurrent: usize,
+        metrics: MetricsRegistry,
+        sandbox_config: Arc<SandboxConfig>,
     ) -> Self {
         Self {
             semaphore: Arc::new(Semaphore::new(max_concurrent)),
@@ -84,7 +82,6 @@ impl TaskDispatcher {
         self.sandbox_config.clone()
     }
 
-
     // ── HTTP path: await result ───────────────────────────────────────────────
 
     /// Spawn a FASM execution and **async-await** the result.
@@ -95,14 +92,13 @@ impl TaskDispatcher {
     /// Returns `Err(EngineError::Overloaded)` immediately if the semaphore is
     /// exhausted, without queuing.
     pub async fn spawn_async(&self, req: ExecRequest) -> Result<Value, EngineError> {
-        let permit = self.semaphore.clone().try_acquire_owned()
-            .map_err(|_| {
-                self.metrics.record_dropped(&req.trigger);
-                EngineError::Overloaded
-            })?;
+        let permit = self.semaphore.clone().try_acquire_owned().map_err(|_| {
+            self.metrics.record_dropped(&req.trigger);
+            EngineError::Overloaded
+        })?;
 
-        let func    = req.func.clone();
-        let trigger = req.trigger.clone();
+        let func = req.func.clone();
+        let _trigger = req.trigger.clone();
         let metrics = self.metrics.clone();
 
         metrics.record_invocation(&func);
@@ -120,7 +116,9 @@ impl TaskDispatcher {
             let res = sb.run_named(&req.program, &req.func, req.args.clone());
             let ms = start.elapsed().as_millis() as u64;
             metrics.record_duration_ms(&req.func, ms);
-            if res.is_err() { metrics.record_error(&req.func); }
+            if res.is_err() {
+                metrics.record_error(&req.func);
+            }
             metrics.dec_active();
             res
         })
@@ -139,11 +137,10 @@ impl TaskDispatcher {
     /// Returns `Err(EngineError::Overloaded)` if the semaphore is exhausted;
     /// the caller should handle the misfire policy (skip / re-queue).
     pub fn spawn_fire_and_forget(&self, req: ExecRequest) -> Result<(), EngineError> {
-        let permit = self.semaphore.clone().try_acquire_owned()
-            .map_err(|_| {
-                self.metrics.record_dropped(&req.trigger);
-                EngineError::Overloaded
-            })?;
+        let permit = self.semaphore.clone().try_acquire_owned().map_err(|_| {
+            self.metrics.record_dropped(&req.trigger);
+            EngineError::Overloaded
+        })?;
 
         let metrics = self.metrics.clone();
         let sandbox_cfg = self.sandbox_config.clone();
@@ -152,7 +149,7 @@ impl TaskDispatcher {
 
         tokio::spawn(async move {
             let _permit = permit; // released on drop
-            let func    = req.func.clone();
+            let func = req.func.clone();
             let metrics2 = metrics.clone();
 
             let sandbox_cfg2 = sandbox_cfg.clone();
@@ -163,7 +160,9 @@ impl TaskDispatcher {
                 let r = sb.run_named(&req.program, &req.func, req.args.clone());
                 let ms = start.elapsed().as_millis() as u64;
                 metrics2.record_duration_ms(&req.func, ms);
-                if r.is_err() { metrics2.record_error(&req.func); }
+                if r.is_err() {
+                    metrics2.record_error(&req.func);
+                }
                 metrics2.dec_active();
                 r
             })
@@ -193,47 +192,126 @@ fn mount_engine_syscalls(sb: &mut Sandbox, metrics: &MetricsRegistry) {
     let m = metrics.clone();
 
     // 20 = METRICS_INC: struct {0: key_str, 1: delta_int}
-    sb.mount_syscall(20, Box::new(move |args, _globals| {
-        if let fasm_vm::Value::Struct(s) = &args {
-            let key = s.get(&0u32)
-                .and_then(|v| if let fasm_vm::Value::Vec(vec) = v {
-                    Some(String::from_utf8_lossy(&vec.0.iter().filter_map(|b| if let fasm_vm::Value::Uint8(u) = b { Some(*u) } else { None }).collect::<Vec<_>>()).to_string())
-                } else { None })
-                .unwrap_or_default();
-            let delta = s.get(&1u32)
-                .and_then(|v| if let fasm_vm::Value::Int32(n) = v { Some(*n as i64) } else { None })
-                .unwrap_or(1);
-            m.custom_inc(&key, delta);
-        }
-        Ok(fasm_vm::Value::Null)
-    }));
+    sb.mount_syscall(
+        20,
+        Box::new(move |args, _globals| {
+            if let fasm_vm::Value::Struct(s) = &args {
+                let key = s
+                    .get(&0u32)
+                    .and_then(|v| {
+                        if let fasm_vm::Value::Vec(vec) = v {
+                            Some(
+                                String::from_utf8_lossy(
+                                    &vec.0
+                                        .iter()
+                                        .filter_map(|b| {
+                                            if let fasm_vm::Value::Uint8(u) = b {
+                                                Some(*u)
+                                            } else {
+                                                None
+                                            }
+                                        })
+                                        .collect::<Vec<_>>(),
+                                )
+                                .to_string(),
+                            )
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or_default();
+                let delta = s
+                    .get(&1u32)
+                    .and_then(|v| {
+                        if let fasm_vm::Value::Int32(n) = v {
+                            Some(*n as i64)
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(1);
+                m.custom_inc(&key, delta);
+            }
+            Ok(fasm_vm::Value::Null)
+        }),
+    );
 
     let m2 = metrics.clone();
     // 21 = METRICS_SET
-    sb.mount_syscall(21, Box::new(move |args, _globals| {
-        if let fasm_vm::Value::Struct(s) = &args {
-            let key = s.get(&0u32)
-                .and_then(|v| if let fasm_vm::Value::Vec(vec) = v {
-                    Some(String::from_utf8_lossy(&vec.0.iter().filter_map(|b| if let fasm_vm::Value::Uint8(u) = b { Some(*u) } else { None }).collect::<Vec<_>>()).to_string())
-                } else { None })
-                .unwrap_or_default();
-            let val = s.get(&1u32)
-                .and_then(|v| if let fasm_vm::Value::Int32(n) = v { Some(*n as i64) } else { None })
-                .unwrap_or(0);
-            m2.custom_set(&key, val);
-        }
-        Ok(fasm_vm::Value::Null)
-    }));
+    sb.mount_syscall(
+        21,
+        Box::new(move |args, _globals| {
+            if let fasm_vm::Value::Struct(s) = &args {
+                let key = s
+                    .get(&0u32)
+                    .and_then(|v| {
+                        if let fasm_vm::Value::Vec(vec) = v {
+                            Some(
+                                String::from_utf8_lossy(
+                                    &vec.0
+                                        .iter()
+                                        .filter_map(|b| {
+                                            if let fasm_vm::Value::Uint8(u) = b {
+                                                Some(*u)
+                                            } else {
+                                                None
+                                            }
+                                        })
+                                        .collect::<Vec<_>>(),
+                                )
+                                .to_string(),
+                            )
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or_default();
+                let val = s
+                    .get(&1u32)
+                    .and_then(|v| {
+                        if let fasm_vm::Value::Int32(n) = v {
+                            Some(*n as i64)
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(0);
+                m2.custom_set(&key, val);
+            }
+            Ok(fasm_vm::Value::Null)
+        }),
+    );
 
     let m3 = metrics.clone();
     // 22 = METRICS_GET
-    sb.mount_syscall(22, Box::new(move |args, _globals| {
-        let key = if let fasm_vm::Value::Vec(ref vec) = args {
-            String::from_utf8_lossy(&vec.0.iter().filter_map(|b| if let fasm_vm::Value::Uint8(u) = b { Some(*u) } else { None }).collect::<Vec<_>>()).to_string()
-        } else { String::new() };
-        match m3.custom_get(&key) {
-            Some(v) => Ok(fasm_vm::Value::Option(Box::new(fasm_vm::value::FasmOption::Some(fasm_vm::Value::Int32(v as i32))))),
-            None    => Ok(fasm_vm::Value::Option(Box::new(fasm_vm::value::FasmOption::None))),
-        }
-    }));
+    sb.mount_syscall(
+        22,
+        Box::new(move |args, _globals| {
+            let key = if let fasm_vm::Value::Vec(ref vec) = args {
+                String::from_utf8_lossy(
+                    &vec.0
+                        .iter()
+                        .filter_map(|b| {
+                            if let fasm_vm::Value::Uint8(u) = b {
+                                Some(*u)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>(),
+                )
+                .to_string()
+            } else {
+                String::new()
+            };
+            match m3.custom_get(&key) {
+                Some(v) => Ok(fasm_vm::Value::Option(Box::new(
+                    fasm_vm::value::FasmOption::Some(fasm_vm::Value::Int32(v as i32)),
+                ))),
+                None => Ok(fasm_vm::Value::Option(Box::new(
+                    fasm_vm::value::FasmOption::None,
+                ))),
+            }
+        }),
+    );
 }

@@ -1,8 +1,8 @@
 //! fasm-engine binary — delegates entirely to the library.
 
+use clap::{Parser, Subcommand};
 use fasm_engine::config;
 use fasm_engine::engine;
-use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -25,8 +25,7 @@ enum Commands {
 async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 
@@ -35,11 +34,14 @@ async fn main() {
     match cli.command {
         Commands::Serve { config } => {
             let config_path = config.canonicalize().expect("config path not found");
-            let config_dir  = config_path.parent().unwrap().to_path_buf();
+            let config_dir = config_path.parent().unwrap().to_path_buf();
 
             let cfg = match config::load(&config_path) {
                 Ok(c) => c,
-                Err(e) => { eprintln!("Error loading config: {}", e); std::process::exit(1); }
+                Err(e) => {
+                    eprintln!("Error loading config: {}", e);
+                    std::process::exit(1);
+                }
             };
 
             tracing::info!(config = ?config_path, "loaded engine config");

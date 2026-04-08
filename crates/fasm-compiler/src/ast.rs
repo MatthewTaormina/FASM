@@ -41,7 +41,7 @@ pub struct Function {
 
 #[derive(Debug, Clone)]
 pub struct ParamDecl {
-    pub key: AstValue,   // u32 or DEFINE name
+    pub key: AstValue, // u32 or DEFINE name
     pub fasm_type: FasmType,
     pub name: String,
     pub required: bool,
@@ -54,7 +54,13 @@ pub enum Statement {
     Local(LocalDecl),
     Label(String, usize),
     Instr(Instr),
-    TryBlock { catch_label: String, end_label: String, body: Vec<Statement>, catch_body: Vec<Statement>, line: usize },
+    TryBlock {
+        catch_label: String,
+        end_label: String,
+        body: Vec<Statement>,
+        catch_body: Vec<Statement>,
+        line: usize,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -76,12 +82,12 @@ pub struct Instr {
 /// An operand expression before resolution.
 #[derive(Debug, Clone)]
 pub enum AstValue {
-    Ident(String),       // symbolic name, DEFINE, or keyword
+    Ident(String), // symbolic name, DEFINE, or keyword
     Integer(i64),
     HexInt(u64),
     Float(f64),
-    Deref(String),       // &name
-    Str(String),         // "..." literal — compiled to VEC<UINT8> (UTF-8 bytes)
+    Deref(String), // &name
+    Str(String),   // "..." literal — compiled to VEC<UINT8> (UTF-8 bytes)
     Null,
     True,
     False,
@@ -89,6 +95,10 @@ pub enum AstValue {
 
 impl AstValue {
     pub fn as_ident(&self) -> Option<&str> {
-        if let AstValue::Ident(s) = self { Some(s) } else { None }
+        if let AstValue::Ident(s) = self {
+            Some(s)
+        } else {
+            None
+        }
     }
 }

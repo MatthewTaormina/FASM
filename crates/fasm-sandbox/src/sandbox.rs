@@ -1,10 +1,10 @@
-use std::path::Path;
-use fasm_bytecode::Program;
-use fasm_vm::{Executor, Value};
-use fasm_vm::value::FasmStruct;
-use fasm_vm::executor::SyscallFn;
 use crate::clock::ClockController;
 use crate::plugin_manifest;
+use fasm_bytecode::Program;
+use fasm_vm::executor::SyscallFn;
+use fasm_vm::value::FasmStruct;
+use fasm_vm::{Executor, Value};
+use std::path::Path;
 
 // ── Config types ──────────────────────────────────────────────────────────────
 
@@ -15,6 +15,25 @@ pub struct SandboxConfig {
     pub clock_hz: u64,
     /// Directory to scan for `*.plugin.toml` manifests.
     pub plugin_discovery_dir: Option<std::path::PathBuf>,
+
+    /// Enable seccomp-BPF syscall denylist on execution threads (Linux only).
+    ///
+    /// When `true`, each `spawn_blocking` worker installs a BPF filter that
+    /// blocks dangerous syscalls (process creation, networking, ptrace, etc.)
+    /// before running the FASM program.  Applied at most once per OS thread.
+    pub enable_seccomp: bool,
+
+    /// Enable Landlock filesystem restrictions on execution threads (Linux only).
+    ///
+    /// When `true`, execution threads are restricted to read-only access within
+    /// the paths listed in `landlock_allowed_read_paths`.  Falls back gracefully
+    /// on kernels that do not support Landlock (< 5.13).
+    pub enable_landlock: bool,
+
+    /// Filesystem paths the execution thread is allowed to read.
+    ///
+    /// Has no effect unless `enable_landlock` is `true`.
+    pub landlock_allowed_read_paths: Vec<std::path::PathBuf>,
 }
 
 // ── Sandbox ───────────────────────────────────────────────────────────────────
@@ -24,6 +43,9 @@ pub struct Sandbox {
     pub id: u64,
     executor: Executor,
     pub clock: ClockController,
+    enable_seccomp: bool,
+    enable_landlock: bool,
+    landlock_allowed_read_paths: Vec<std::path::PathBuf>,
 }
 
 impl Sandbox {
@@ -32,6 +54,9 @@ impl Sandbox {
             id,
             executor: Executor::new(),
             clock: ClockController::new(),
+            enable_seccomp: false,
+            enable_landlock: false,
+            landlock_allowed_read_paths: Vec::new(),
         }
     }
 
@@ -47,6 +72,9 @@ impl Sandbox {
         if let Some(ref dir) = config.plugin_discovery_dir {
             sb.mount_sidecar_from_discovery(dir);
         }
+        sb.enable_seccomp = config.enable_seccomp;
+        sb.enable_landlock = config.enable_landlock;
+        sb.landlock_allowed_read_paths = config.landlock_allowed_read_paths.clone();
         sb
     }
 
@@ -70,13 +98,16 @@ impl Sandbox {
         use std::sync::{Arc, Mutex};
         let sidecar = crate::sidecar::SidecarPlugin::new(cmd, args);
         let locked = Arc::new(Mutex::new(sidecar));
-        
+
         for &id in ids {
             let plg = locked.clone();
-            self.mount_syscall(id, Box::new(move |val, _| {
-                let mut p = plg.lock().unwrap();
-                p.call(id, &val)
-            }));
+            self.mount_syscall(
+                id,
+                Box::new(move |val, _| {
+                    let mut p = plg.lock().unwrap();
+                    p.call(id, &val)
+                }),
+            );
         }
     }
 
@@ -88,17 +119,25 @@ impl Sandbox {
     /// skipped.
     pub fn mount_sidecar_from_discovery(&mut self, dir: &Path) {
         let manifests = plugin_manifest::discover_auto_mount(dir);
-        eprintln!("[fasm-sandbox] discovered {} auto-mount plugins in {:?}", manifests.len(), dir);
+        eprintln!(
+            "[fasm-sandbox] discovered {} auto-mount plugins in {:?}",
+            manifests.len(),
+            dir
+        );
 
         for m in manifests {
             let arg_refs: Vec<&str> = m.args.iter().map(String::as_str).collect();
-            eprintln!("[fasm-sandbox] mounting plugin '{}' syscalls={:?} cmd={:?}", m.name, m.syscall_ids, m.cmd);
+            eprintln!(
+                "[fasm-sandbox] mounting plugin '{}' syscalls={:?} cmd={:?}",
+                m.name, m.syscall_ids, m.cmd
+            );
             self.mount_shared_sidecar(&m.syscall_ids, &m.cmd, &arg_refs);
         }
     }
 
     /// Run the program to completion from `Main`.
     pub fn run(&mut self, program: &Program) -> Result<Value, String> {
+        self.apply_thread_protections();
         self.executor.run(program)
     }
 
@@ -106,12 +145,43 @@ impl Sandbox {
     ///
     /// `args` is passed as the function's `$args` struct — useful for HTTP
     /// request handlers, scheduled tasks, and event handlers.
-    pub fn run_named(&mut self, program: &Program, func: &str, args: Value) -> Result<Value, String> {
+    pub fn run_named(
+        &mut self,
+        program: &Program,
+        func: &str,
+        args: Value,
+    ) -> Result<Value, String> {
+        self.apply_thread_protections();
         self.executor.run_named(program, func, args)
     }
 
     /// Convenience: run a named entry point with an empty `$args` struct.
     pub fn run_func(&mut self, program: &Program, func: &str) -> Result<Value, String> {
-        self.executor.run_named(program, func, Value::Struct(FasmStruct::default()))
+        self.executor
+            .run_named(program, func, Value::Struct(FasmStruct::default()))
+    }
+
+    // ── Internal helpers ─────────────────────────────────────────────────────
+
+    /// Apply per-thread security protections before executing untrusted code.
+    ///
+    /// Both seccomp and Landlock are Linux-only and applied lazily (once per OS
+    /// thread).  Errors are logged but do not abort execution — the VM-level
+    /// sandbox isolation still applies.
+    fn apply_thread_protections(&self) {
+        #[cfg(target_os = "linux")]
+        {
+            if self.enable_seccomp {
+                if let Err(e) = crate::seccomp::apply_denylist() {
+                    eprintln!("[fasm-sandbox/seccomp] warning: {}", e);
+                }
+            }
+
+            if self.enable_landlock {
+                if let Err(e) = crate::landlock::apply(&self.landlock_allowed_read_paths) {
+                    eprintln!("[fasm-sandbox/landlock] warning: {}", e);
+                }
+            }
+        }
     }
 }

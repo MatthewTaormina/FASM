@@ -10,21 +10,17 @@
 //! If the semaphore is exhausted (Dropped), the message stays in the queue
 //! for the next poll cycle — nothing is lost.
 
-use std::{
-    path::Path,
-    sync::Arc,
-    time::Duration,
-};
 use fasm_bytecode::Program;
 use fasm_compiler::compile_source;
-use fasm_vm::Value;
 use fasm_vm::value::{FasmStruct, FasmVec};
+use fasm_vm::Value;
+use std::{path::Path, sync::Arc, time::Duration};
 
 use crate::{
     config::QueueConfig,
     dispatcher::{EngineError, ExecRequest, TaskDispatcher},
     metrics::MetricsRegistry,
-    queues::{QueueRegistry, SharedQueue},
+    queues::QueueRegistry,
 };
 
 /// Spawn one queue-looper task.
@@ -35,18 +31,23 @@ pub fn spawn_queue_looper(
     dispatcher: TaskDispatcher,
     metrics: MetricsRegistry,
 ) -> Result<tokio::task::JoinHandle<()>, String> {
-    let func   = match &cfg.function { Some(f) => f.clone(), None => return Ok(tokio::spawn(async {})) };
-    let source = match &cfg.source   { Some(s) => s.clone(), None => return Ok(tokio::spawn(async {})) };
+    let func = match &cfg.function {
+        Some(f) => f.clone(),
+        None => return Ok(tokio::spawn(async {})),
+    };
+    let source = match &cfg.source {
+        Some(s) => s.clone(),
+        None => return Ok(tokio::spawn(async {})),
+    };
 
     let source_path = base_dir.join(&source);
     let src = std::fs::read_to_string(&source_path)
         .map_err(|e| format!("queue looper: cannot read {:?}: {}", source_path, e))?;
-    let program: Arc<Program> = Arc::new(
-        compile_source(&src).map_err(|e| format!("queue looper compile error: {}", e))?
-    );
+    let program: Arc<Program> =
+        Arc::new(compile_source(&src).map_err(|e| format!("queue looper compile error: {}", e))?);
 
     let queue = queue_registry.get_or_create(&cfg.name, cfg.max_retries, cfg.timeout_secs);
-    let name  = cfg.name.clone();
+    let name = cfg.name.clone();
 
     let handle = tokio::spawn(async move {
         tracing::info!(queue = %name, func = %func, "queue looper started");
@@ -76,9 +77,9 @@ pub fn spawn_queue_looper(
                     args_struct.insert(1u32, Value::Vec(FasmVec(id_bytes)));
 
                     let req = ExecRequest {
-                        func:    func.clone(),
+                        func: func.clone(),
                         program: program.clone(),
-                        args:    Value::Struct(args_struct),
+                        args: Value::Struct(args_struct),
                         trigger: "queue".to_string(),
                     };
 

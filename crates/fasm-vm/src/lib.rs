@@ -18,12 +18,12 @@
 //! - [`executor::Executor`] — the VM dispatch loop and syscall table
 //! - [`executor::SyscallFn`] — the signature for host-provided syscall handlers
 
-pub mod value;
+pub mod executor;
 pub mod fault;
 pub mod memory;
-pub mod executor;
+pub mod value;
 
-pub use value::Value;
+pub use executor::Executor;
 pub use fault::Fault;
 pub use memory::{Frame, GlobalRegister};
-pub use executor::Executor;
+pub use value::Value;

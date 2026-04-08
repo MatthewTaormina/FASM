@@ -11,12 +11,12 @@ use std::time::Instant;
 
 #[derive(Debug, Clone, Default)]
 pub struct MetricsSnapshot {
-    pub invocations:    HashMap<String, u64>,
-    pub errors:         HashMap<String, u64>,
-    pub durations_ms:   HashMap<String, Vec<u64>>,
-    pub queue_depth:    HashMap<String, u64>,
+    pub invocations: HashMap<String, u64>,
+    pub errors: HashMap<String, u64>,
+    pub durations_ms: HashMap<String, Vec<u64>>,
+    pub queue_depth: HashMap<String, u64>,
     pub active_sandboxes: u64,
-    pub dropped_total:  HashMap<String, u64>,
+    pub dropped_total: HashMap<String, u64>,
     pub custom_counters: HashMap<String, i64>,
 }
 
@@ -24,12 +24,12 @@ pub struct MetricsSnapshot {
 
 #[derive(Debug, Default)]
 struct Inner {
-    invocations:     HashMap<String, u64>,
-    errors:          HashMap<String, u64>,
-    durations_ms:    HashMap<String, Vec<u64>>,
-    queue_depth:     HashMap<String, u64>,
+    invocations: HashMap<String, u64>,
+    errors: HashMap<String, u64>,
+    durations_ms: HashMap<String, Vec<u64>>,
+    queue_depth: HashMap<String, u64>,
     active_sandboxes: u64,
-    dropped_total:   HashMap<String, u64>,
+    dropped_total: HashMap<String, u64>,
     custom_counters: HashMap<String, i64>,
 }
 
@@ -37,7 +37,9 @@ struct Inner {
 pub struct MetricsRegistry(Arc<Mutex<Inner>>);
 
 impl MetricsRegistry {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     // ── write ────────────────────────────────────────────────────────────
 
@@ -94,12 +96,12 @@ impl MetricsRegistry {
     pub fn snapshot(&self) -> MetricsSnapshot {
         let g = self.0.lock().unwrap();
         MetricsSnapshot {
-            invocations:     g.invocations.clone(),
-            errors:          g.errors.clone(),
-            durations_ms:    g.durations_ms.clone(),
-            queue_depth:     g.queue_depth.clone(),
+            invocations: g.invocations.clone(),
+            errors: g.errors.clone(),
+            durations_ms: g.durations_ms.clone(),
+            queue_depth: g.queue_depth.clone(),
             active_sandboxes: g.active_sandboxes,
-            dropped_total:   g.dropped_total.clone(),
+            dropped_total: g.dropped_total.clone(),
             custom_counters: g.custom_counters.clone(),
         }
     }
@@ -113,31 +115,51 @@ impl MetricsRegistry {
         out.push_str("# HELP fasm_invocations_total Total function invocations\n");
         out.push_str("# TYPE fasm_invocations_total counter\n");
         for (func, count) in &snap.invocations {
-            out.push_str(&format!("fasm_invocations_total{{function=\"{}\"}} {}\n", func, count));
+            out.push_str(&format!(
+                "fasm_invocations_total{{function=\"{}\"}} {}\n",
+                func, count
+            ));
         }
 
         // Errors
         out.push_str("# HELP fasm_errors_total Total function errors\n");
         out.push_str("# TYPE fasm_errors_total counter\n");
         for (func, count) in &snap.errors {
-            out.push_str(&format!("fasm_errors_total{{function=\"{}\"}} {}\n", func, count));
+            out.push_str(&format!(
+                "fasm_errors_total{{function=\"{}\"}} {}\n",
+                func, count
+            ));
         }
 
         // Durations (p50, p99, count, sum)
         out.push_str("# HELP fasm_invocation_duration_ms Execution time histogram (ms)\n");
         out.push_str("# TYPE fasm_invocation_duration_ms summary\n");
         for (func, samples) in &snap.durations_ms {
-            if samples.is_empty() { continue; }
+            if samples.is_empty() {
+                continue;
+            }
             let mut sorted = samples.clone();
             sorted.sort_unstable();
             let count = sorted.len();
             let sum: u64 = sorted.iter().sum();
             let p50 = sorted[count / 2];
             let p99 = sorted[(count * 99 / 100).min(count - 1)];
-            out.push_str(&format!("fasm_invocation_duration_ms{{function=\"{}\",quantile=\"0.5\"}} {}\n", func, p50));
-            out.push_str(&format!("fasm_invocation_duration_ms{{function=\"{}\",quantile=\"0.99\"}} {}\n", func, p99));
-            out.push_str(&format!("fasm_invocation_duration_ms_count{{function=\"{}\"}} {}\n", func, count));
-            out.push_str(&format!("fasm_invocation_duration_ms_sum{{function=\"{}\"}} {}\n", func, sum));
+            out.push_str(&format!(
+                "fasm_invocation_duration_ms{{function=\"{}\",quantile=\"0.5\"}} {}\n",
+                func, p50
+            ));
+            out.push_str(&format!(
+                "fasm_invocation_duration_ms{{function=\"{}\",quantile=\"0.99\"}} {}\n",
+                func, p99
+            ));
+            out.push_str(&format!(
+                "fasm_invocation_duration_ms_count{{function=\"{}\"}} {}\n",
+                func, count
+            ));
+            out.push_str(&format!(
+                "fasm_invocation_duration_ms_sum{{function=\"{}\"}} {}\n",
+                func, sum
+            ));
         }
 
         // Queue depths
@@ -150,13 +172,19 @@ impl MetricsRegistry {
         // Active sandboxes
         out.push_str("# HELP fasm_active_sandboxes Currently executing sandboxes\n");
         out.push_str("# TYPE fasm_active_sandboxes gauge\n");
-        out.push_str(&format!("fasm_active_sandboxes {}\n", snap.active_sandboxes));
+        out.push_str(&format!(
+            "fasm_active_sandboxes {}\n",
+            snap.active_sandboxes
+        ));
 
         // Dropped
         out.push_str("# HELP fasm_dropped_executions_total Dropped executions by trigger\n");
         out.push_str("# TYPE fasm_dropped_executions_total counter\n");
         for (trigger, count) in &snap.dropped_total {
-            out.push_str(&format!("fasm_dropped_executions_total{{trigger=\"{}\"}} {}\n", trigger, count));
+            out.push_str(&format!(
+                "fasm_dropped_executions_total{{trigger=\"{}\"}} {}\n",
+                trigger, count
+            ));
         }
 
         // Custom
@@ -173,13 +201,17 @@ impl MetricsRegistry {
 /// RAII guard that records a duration on drop.
 pub struct Timer {
     started: Instant,
-    func:    String,
+    func: String,
     metrics: MetricsRegistry,
 }
 
 impl Timer {
     pub fn start(func: impl Into<String>, metrics: MetricsRegistry) -> Self {
-        Self { started: Instant::now(), func: func.into(), metrics }
+        Self {
+            started: Instant::now(),
+            func: func.into(),
+            metrics,
+        }
     }
 }
 
@@ -257,9 +289,18 @@ mod tests {
         m.record_invocation("Ping");
         m.set_queue_depth("orders", 7);
         let text = m.render_text();
-        assert!(text.contains("fasm_invocations_total{function=\"Ping\"} 1"), "missing invocation line");
-        assert!(text.contains("fasm_queue_depth{queue=\"orders\"} 7"), "missing queue depth line");
-        assert!(text.contains("fasm_active_sandboxes"), "missing active sandboxes metric");
+        assert!(
+            text.contains("fasm_invocations_total{function=\"Ping\"} 1"),
+            "missing invocation line"
+        );
+        assert!(
+            text.contains("fasm_queue_depth{queue=\"orders\"} 7"),
+            "missing queue depth line"
+        );
+        assert!(
+            text.contains("fasm_active_sandboxes"),
+            "missing active sandboxes metric"
+        );
     }
 
     #[test]

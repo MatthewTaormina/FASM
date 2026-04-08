@@ -20,8 +20,8 @@ use axum::{
 };
 use flate2::read::GzDecoder;
 
-use crate::http_handler::AppState;
 use super::auth::require_auth;
+use crate::http_handler::AppState;
 
 // ── list ──────────────────────────────────────────────────────────────────────
 
@@ -32,7 +32,11 @@ pub async fn list_files(
 ) -> Response {
     match state.registry.get_app(&ns, &app).await {
         Some(manifest) => (StatusCode::OK, Json(manifest.files)).into_response(),
-        None           => (StatusCode::NOT_FOUND, format!("app '{}/{}' not found", ns, app)).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            format!("app '{}/{}' not found", ns, app),
+        )
+            .into_response(),
     }
 }
 
@@ -45,13 +49,21 @@ pub async fn upload_file(
     Path((ns, app, filename)): Path<(String, String, String)>,
     body: Bytes,
 ) -> Response {
-    if let Err(r) = require_auth(&headers, &state) { return r; }
+    if let Err(r) = require_auth(&headers, &state) {
+        return *r;
+    }
 
     // Decompress if Content-Encoding: gzip
     let raw: Vec<u8> = if is_gzip(&headers) {
         match decompress_gzip(&body) {
-            Ok(b)  => b,
-            Err(e) => return (StatusCode::BAD_REQUEST, format!("gzip decompress failed: {}", e)).into_response(),
+            Ok(b) => b,
+            Err(e) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    format!("gzip decompress failed: {}", e),
+                )
+                    .into_response()
+            }
         }
     } else {
         body.to_vec()
@@ -62,9 +74,9 @@ pub async fn upload_file(
     }
 
     match state.registry.store_file(&ns, &app, &filename, &raw).await {
-        Ok(record)  => (StatusCode::OK, Json(record)).into_response(),
+        Ok(record) => (StatusCode::OK, Json(record)).into_response(),
         Err(e) if e.contains("not found") => (StatusCode::NOT_FOUND, e).into_response(),
-        Err(e)      => (StatusCode::BAD_REQUEST, e).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
     }
 }
 
@@ -83,11 +95,20 @@ pub async fn download_file(
                 } else {
                     "text/plain; charset=utf-8"
                 };
-                (StatusCode::OK, [(axum::http::header::CONTENT_TYPE, ct)], bytes).into_response()
+                (
+                    StatusCode::OK,
+                    [(axum::http::header::CONTENT_TYPE, ct)],
+                    bytes,
+                )
+                    .into_response()
             }
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
         },
-        None => (StatusCode::NOT_FOUND, format!("file '{}' not found", filename)).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            format!("file '{}' not found", filename),
+        )
+            .into_response(),
     }
 }
 
@@ -99,11 +120,13 @@ pub async fn delete_file(
     headers: HeaderMap,
     Path((ns, app, filename)): Path<(String, String, String)>,
 ) -> Response {
-    if let Err(r) = require_auth(&headers, &state) { return r; }
+    if let Err(r) = require_auth(&headers, &state) {
+        return *r;
+    }
     match state.registry.delete_file(&ns, &app, &filename).await {
-        Ok(())  => StatusCode::NO_CONTENT.into_response(),
-        Err(e) if e.contains("not found")     => (StatusCode::NOT_FOUND, e).into_response(),
-        Err(e) if e.contains("referenced")    => (StatusCode::CONFLICT, e).into_response(),
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) if e.contains("not found") => (StatusCode::NOT_FOUND, e).into_response(),
+        Err(e) if e.contains("referenced") => (StatusCode::CONFLICT, e).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
     }
 }
@@ -111,7 +134,8 @@ pub async fn delete_file(
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 fn is_gzip(headers: &HeaderMap) -> bool {
-    headers.get(axum::http::header::CONTENT_ENCODING)
+    headers
+        .get(axum::http::header::CONTENT_ENCODING)
         .and_then(|v| v.to_str().ok())
         .map(|v| v.eq_ignore_ascii_case("gzip"))
         .unwrap_or(false)

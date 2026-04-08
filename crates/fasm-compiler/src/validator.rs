@@ -1,5 +1,5 @@
-use std::collections::HashSet;
 use crate::ast::*;
+use std::collections::HashSet;
 
 /// Static validation pass — checks the AST for structural errors before emit.
 pub fn validate(prog: &ProgramAst) -> Result<(), String> {
@@ -7,7 +7,10 @@ pub fn validate(prog: &ProgramAst) -> Result<(), String> {
     let mut func_names = HashSet::new();
     for f in &prog.functions {
         if !func_names.insert(f.name.clone()) {
-            return Err(format!("Line {}: duplicate function name '{}'", f.line, f.name));
+            return Err(format!(
+                "Line {}: duplicate function name '{}'",
+                f.line, f.name
+            ));
         }
     }
 
@@ -24,7 +27,11 @@ pub fn validate(prog: &ProgramAst) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_function(func: &Function, all_funcs: &HashSet<String>, prog: &ProgramAst) -> Result<(), String> {
+fn validate_function(
+    func: &Function,
+    all_funcs: &HashSet<String>,
+    prog: &ProgramAst,
+) -> Result<(), String> {
     // Collect declared local names and param names
     let mut declared: HashSet<String> = prog.defines.iter().map(|d| d.name.clone()).collect();
     // Add builtin symbols
@@ -46,7 +53,14 @@ fn validate_function(func: &Function, all_funcs: &HashSet<String>, prog: &Progra
 
     // Validate body
     let mut tmp_depth = 0;
-    validate_statements(&func.body, &mut declared, all_funcs, &labels, &func.name, &mut tmp_depth)?;
+    validate_statements(
+        &func.body,
+        &mut declared,
+        all_funcs,
+        &labels,
+        &func.name,
+        &mut tmp_depth,
+    )?;
     if tmp_depth > 0 {
         return Err(format!("Function '{}': unclosed TMP_BLOCK", func.name));
     }
@@ -67,7 +81,9 @@ fn collect_labels(stmts: &[Statement], labels: &mut HashSet<String>) -> Result<(
                     // labels can't be safely jumped across if they span blocks
                 }
             }
-            Statement::TryBlock { body, catch_body, .. } => {
+            Statement::TryBlock {
+                body, catch_body, ..
+            } => {
                 collect_labels(body, labels)?;
                 collect_labels(catch_body, labels)?;
             }
@@ -92,16 +108,24 @@ fn validate_statements(
             }
             Statement::Label(_name, _line) => {}
             Statement::Instr(instr) => {
-                if instr.mnemonic == "TMP_BLOCK" { *tmp_depth += 1; }
+                if instr.mnemonic == "TMP_BLOCK" {
+                    *tmp_depth += 1;
+                }
                 validate_instr(instr, declared, all_funcs, labels, func_name, *tmp_depth)?;
-                if instr.mnemonic == "END_TMP" { 
-                    if *tmp_depth == 0 { return Err(format!("Line {}: END_TMP without TMP_BLOCK", instr.line)); }
-                    *tmp_depth -= 1; 
+                if instr.mnemonic == "END_TMP" {
+                    if *tmp_depth == 0 {
+                        return Err(format!("Line {}: END_TMP without TMP_BLOCK", instr.line));
+                    }
+                    *tmp_depth -= 1;
                 }
             }
-            Statement::TryBlock { body, catch_body, .. } => {
+            Statement::TryBlock {
+                body, catch_body, ..
+            } => {
                 validate_statements(body, declared, all_funcs, labels, func_name, tmp_depth)?;
-                validate_statements(catch_body, declared, all_funcs, labels, func_name, tmp_depth)?;
+                validate_statements(
+                    catch_body, declared, all_funcs, labels, func_name, tmp_depth,
+                )?;
             }
         }
     }
@@ -119,19 +143,28 @@ fn validate_instr(
     match instr.mnemonic.as_str() {
         "JMP" | "JZ" | "JNZ" => {
             if tmp_depth > 0 {
-                return Err(format!("Line {}: jump instruction not allowed inside TMP_BLOCK (must remain atomic)", instr.line));
+                return Err(format!(
+                    "Line {}: jump instruction not allowed inside TMP_BLOCK (must remain atomic)",
+                    instr.line
+                ));
             }
             // last operand should be a label
             if let Some(AstValue::Ident(label)) = instr.operands.last() {
                 if !labels.contains(label.as_str()) {
-                    return Err(format!("Line {}: undefined label '{}' in function '{}'", instr.line, label, func_name));
+                    return Err(format!(
+                        "Line {}: undefined label '{}' in function '{}'",
+                        instr.line, label, func_name
+                    ));
                 }
             }
         }
         "CALL" | "ASYNC_CALL" => {
             if let Some(AstValue::Ident(name)) = instr.operands.first() {
                 if !all_funcs.contains(name.as_str()) {
-                    return Err(format!("Line {}: call to undefined function '{}'", instr.line, name));
+                    return Err(format!(
+                        "Line {}: call to undefined function '{}'",
+                        instr.line, name
+                    ));
                 }
             }
         }
@@ -155,7 +188,10 @@ fn validate_instr(
             }
             AstValue::Deref(name) => {
                 if !declared.contains(name.as_str()) {
-                    return Err(format!("Line {}: dereference of undeclared slot '{}' in '{}'", instr.line, name, func_name));
+                    return Err(format!(
+                        "Line {}: dereference of undeclared slot '{}' in '{}'",
+                        instr.line, name, func_name
+                    ));
                 }
             }
             _ => {}
@@ -165,13 +201,34 @@ fn validate_instr(
 }
 
 fn is_type_name(s: &str) -> bool {
-    matches!(s,
-        "BOOL"|"INT8"|"INT16"|"INT32"|"INT64"|"UINT8"|"UINT16"|"UINT32"|"UINT64"|
-        "FLOAT32"|"FLOAT64"|"REF_MUT"|"REF_IMM"|"VEC"|"STRUCT"|"STACK"|"QUEUE"|
-        "HEAP_MIN"|"HEAP_MAX"|"OPTION"|"RESULT"|"FUTURE"|"NULL"
+    matches!(
+        s,
+        "BOOL"
+            | "INT8"
+            | "INT16"
+            | "INT32"
+            | "INT64"
+            | "UINT8"
+            | "UINT16"
+            | "UINT32"
+            | "UINT64"
+            | "FLOAT32"
+            | "FLOAT64"
+            | "REF_MUT"
+            | "REF_IMM"
+            | "VEC"
+            | "STRUCT"
+            | "STACK"
+            | "QUEUE"
+            | "HEAP_MIN"
+            | "HEAP_MAX"
+            | "OPTION"
+            | "RESULT"
+            | "FUTURE"
+            | "NULL"
     )
 }
 
 fn is_modifier(s: &str) -> bool {
-    matches!(s, "REQUIRED"|"OPTIONAL"|"AS")
+    matches!(s, "REQUIRED" | "OPTIONAL" | "AS")
 }

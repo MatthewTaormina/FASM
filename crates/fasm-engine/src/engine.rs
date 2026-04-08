@@ -1,15 +1,15 @@
 //! Engine bootstrap — wires all subsystems from a parsed config.
 
-use std::{net::SocketAddr, path::PathBuf, sync::Arc};
-use axum::{Router, routing::get};
+use axum::{routing::get, Router};
 use fasm_sandbox::SandboxConfig;
+use std::{net::SocketAddr, path::PathBuf, sync::Arc};
 use tokio::{net::TcpListener, sync::RwLock};
 
 use crate::{
-    admin::{AppRegistry, router as admin_router},
+    admin::{router as admin_router, AppRegistry},
     config::EngineConfig,
     dispatcher::TaskDispatcher,
-    http_handler::{AppState, handle_request, handle_metrics, handle_queue_info},
+    http_handler::{handle_metrics, handle_queue_info, handle_request, AppState},
     metrics::MetricsRegistry,
     queue_looper::spawn_queue_looper,
     queues::QueueRegistry,
@@ -20,9 +20,9 @@ use crate::{
 /// Shared engine state accessible to all subsystems.
 #[derive(Clone)]
 pub struct EngineState {
-    pub config:     Arc<EngineConfig>,
-    pub metrics:    MetricsRegistry,
-    pub queues:     QueueRegistry,
+    pub config: Arc<EngineConfig>,
+    pub metrics: MetricsRegistry,
+    pub queues: QueueRegistry,
     pub dispatcher: TaskDispatcher,
 }
 
@@ -32,9 +32,12 @@ pub struct EngineState {
 /// closes.  Never returns on success.
 pub async fn run(config: EngineConfig, config_dir: PathBuf) -> Result<(), String> {
     let addr = format!("{}:{}", config.server.host, config.server.port);
-    let listener = TcpListener::bind(&addr).await
+    let listener = TcpListener::bind(&addr)
+        .await
         .map_err(|e| format!("bind failed on {}: {}", addr, e))?;
-    run_with_listener(config, config_dir, listener).await.map(|_| ())
+    run_with_listener(config, config_dir, listener)
+        .await
+        .map(|_| ())
 }
 
 /// Start the engine on an already-bound `TcpListener`.
@@ -43,17 +46,18 @@ pub async fn run(config: EngineConfig, config_dir: PathBuf) -> Result<(), String
 /// the engine.  This function returns the bound `SocketAddr` and then runs the
 /// axum server until the future is dropped/cancelled.
 pub async fn run_with_listener(
-    config:     EngineConfig,
+    config: EngineConfig,
     config_dir: PathBuf,
-    listener:   TcpListener,
+    listener: TcpListener,
 ) -> Result<SocketAddr, String> {
     tracing::info!("fasm-engine starting up");
 
-    let bound_addr = listener.local_addr()
+    let bound_addr = listener
+        .local_addr()
         .map_err(|e| format!("cannot read local addr: {}", e))?;
 
     let metrics = MetricsRegistry::new();
-    let queues  = QueueRegistry::new();
+    let queues = QueueRegistry::new();
 
     // Pre-register all declared queues.
     for qcfg in &config.queues {
@@ -63,9 +67,14 @@ pub async fn run_with_listener(
     // Build sandbox config.
     let sandbox_config = Arc::new(SandboxConfig {
         clock_hz: config.engine.clock_hz,
-        plugin_discovery_dir: config.plugins.discovery_dir
+        plugin_discovery_dir: config
+            .plugins
+            .discovery_dir
             .as_ref()
             .map(|d| config_dir.join(d)),
+        enable_seccomp: config.engine.enable_seccomp,
+        enable_landlock: config.engine.enable_landlock,
+        landlock_allowed_read_paths: config.engine.landlock_allowed_read_paths.clone(),
     });
 
     let dispatcher = TaskDispatcher::new_with_config(
@@ -94,7 +103,8 @@ pub async fn run_with_listener(
         let mut table = route_table.write().await;
         for manifest in &persisted {
             for route_rec in &manifest.routes {
-                let file_path = registry.file_path(&manifest.namespace, &manifest.app, &route_rec.file);
+                let file_path =
+                    registry.file_path(&manifest.namespace, &manifest.app, &route_rec.file);
                 match crate::router::compile_source_file(&file_path) {
                     Ok(prog) => {
                         let prog = Arc::new(prog);
@@ -108,7 +118,11 @@ pub async fn run_with_listener(
                         }
                     }
                     Err(e) => {
-                        tracing::warn!("startup: cannot compile persisted route file {:?}: {}", file_path, e);
+                        tracing::warn!(
+                            "startup: cannot compile persisted route file {:?}: {}",
+                            file_path,
+                            e
+                        );
                     }
                 }
             }
@@ -117,37 +131,37 @@ pub async fn run_with_listener(
 
     // Spawn scheduled tasks.
     for sched in config.schedules.clone() {
-        let d   = dispatcher.clone();
+        let d = dispatcher.clone();
         let dir = config_dir.clone();
         match spawn_schedule(sched, &dir, d) {
-            Ok(_)  => {}
+            Ok(_) => {}
             Err(e) => tracing::error!("schedule spawn failed: {}", e),
         }
     }
 
     // Spawn queue loopers.
     for qcfg in config.queues.clone() {
-        let d   = dispatcher.clone();
+        let d = dispatcher.clone();
         let dir = config_dir.clone();
-        let qr  = queues.clone();
-        let m   = metrics.clone();
+        let qr = queues.clone();
+        let m = metrics.clone();
         match spawn_queue_looper(qcfg, &dir, &qr, d, m) {
-            Ok(_)  => {}
+            Ok(_) => {}
             Err(e) => tracing::error!("queue looper spawn failed: {}", e),
         }
     }
 
     // Build axum AppState.
     let app_state = AppState {
-        routes:      route_table,
-        dispatcher:  dispatcher.clone(),
-        metrics:     metrics.clone(),
+        routes: route_table,
+        dispatcher: dispatcher.clone(),
+        metrics: metrics.clone(),
         admin_token: config.storage.admin_token.clone(),
         registry,
     };
 
     let app = Router::new()
-        .route("/metrics",      get(handle_metrics))
+        .route("/metrics", get(handle_metrics))
         .route("/admin/queues", get(handle_queue_info))
         .merge(admin_router())
         .fallback(handle_request)
@@ -155,7 +169,8 @@ pub async fn run_with_listener(
 
     tracing::info!(addr = %bound_addr, "listening");
 
-    axum::serve(listener, app).await
+    axum::serve(listener, app)
+        .await
         .map_err(|e| format!("server error: {}", e))?;
 
     Ok(bound_addr)
