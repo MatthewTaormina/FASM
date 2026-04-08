@@ -152,6 +152,7 @@ pub async fn handle_request(
         program: matched.program.clone(),
         args: Value::Struct(args_struct),
         trigger: "http".to_string(),
+        jit: matched.jit.clone(),
     };
 
     // Dispatch

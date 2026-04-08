@@ -3,6 +3,7 @@ members = [
     "crates/fasm-bytecode",
     "crates/fasm-compiler",
     "crates/fasm-vm",
+    "crates/fasm-jit",
     "crates/fasm-sandbox",
     "crates/fasm-cli",
     "crates/fasm-engine",

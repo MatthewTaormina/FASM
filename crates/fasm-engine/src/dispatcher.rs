@@ -19,6 +19,7 @@
 //! start of every invocation, so no additional cleanup is required.
 
 use fasm_bytecode::Program;
+use fasm_jit::FasmJit;
 use fasm_sandbox::{Sandbox, SandboxConfig};
 use fasm_vm::Value;
 use std::cell::RefCell;
@@ -40,6 +41,9 @@ pub struct ExecRequest {
     pub args: Value,
     /// Friendly trigger label for metrics/logs (e.g. `"http"`, `"schedule"`, `"queue"`).
     pub trigger: String,
+    /// Optional pre-compiled JIT cache for this program.  When set, eligible
+    /// function calls bypass the bytecode interpreter.
+    pub jit: Option<Arc<FasmJit>>,
 }
 
 // ── EngineError ────────────────────────────────────────────────────────────────
@@ -128,6 +132,9 @@ impl TaskDispatcher {
             // skip that setup entirely.
             let mut sb = acquire_sandbox(&sandbox_cfg, &metrics);
 
+            if let Some(ref jit) = req.jit {
+                sb.set_jit(Arc::clone(jit) as Arc<dyn fasm_vm::JitDispatcher>);
+            }
             let res = sb.run_named(&req.program, &req.func, req.args.clone());
             let ms = start.elapsed().as_millis() as u64;
             metrics.record_duration_ms(&req.func, ms);
@@ -174,6 +181,9 @@ impl TaskDispatcher {
             let res = tokio::task::spawn_blocking(move || {
                 let start = std::time::Instant::now();
                 let mut sb = acquire_sandbox(&sandbox_cfg2, &metrics2);
+                if let Some(ref jit) = req.jit {
+                    sb.set_jit(Arc::clone(jit) as Arc<dyn fasm_vm::JitDispatcher>);
+                }
                 let r = sb.run_named(&req.program, &req.func, req.args.clone());
                 let ms = start.elapsed().as_millis() as u64;
                 metrics2.record_duration_ms(&req.func, ms);

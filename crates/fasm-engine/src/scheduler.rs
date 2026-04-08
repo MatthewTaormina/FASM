@@ -76,6 +76,7 @@ pub fn spawn_schedule(
                 program: program.clone(),
                 args: Value::Struct(FasmStruct::default()),
                 trigger: "schedule".to_string(),
+                jit: None,
             };
             match dispatcher.spawn_fire_and_forget(req) {
                 Ok(_) => {}

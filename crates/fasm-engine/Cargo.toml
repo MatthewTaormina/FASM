@@ -23,6 +23,7 @@ harness = false
 fasm-bytecode  = { path = "../fasm-bytecode" }
 fasm-compiler  = { path = "../fasm-compiler" }
 fasm-vm        = { path = "../fasm-vm" }
+fasm-jit       = { path = "../fasm-jit" }
 fasm-sandbox   = { path = "../fasm-sandbox" }
 
 tokio          = { version = "1", features = ["full"] }

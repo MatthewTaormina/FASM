@@ -17,6 +17,22 @@ use std::collections::HashMap;
 
 const MAX_CALL_DEPTH: usize = 512;
 
+// ─── JIT dispatch trait ───────────────────────────────────────────────────────
+
+/// Pluggable JIT dispatch for the interpreter.
+///
+/// `fasm-jit` implements this trait so that `fasm-vm` does not need to take a
+/// direct dependency on `fasm-jit` (which would create a cycle, because
+/// `fasm-jit` already depends on `fasm-vm`).
+///
+/// Set a dispatcher on an `Executor` with [`Executor::set_jit`].
+pub trait JitDispatcher: Send + Sync {
+    /// Try to call the function at `func_idx` with `args`.
+    /// Returns `Some(result)` on a successful JIT dispatch, `None` to fall
+    /// back to the interpreter.
+    fn dispatch(&self, func_idx: usize, args: &Value) -> Option<Value>;
+}
+
 /// Snapshot used by TRY/CATCH for transactional rollback.
 struct TryGuard {
     catch_ip: usize, // instruction index of CATCH
@@ -60,7 +76,11 @@ pub struct Executor {
     pub globals: GlobalRegister,
     syscalls: HashMap<i32, SyscallFn>,
     call_stack: Vec<CallFrame>,
+    /// Optional JIT dispatcher — if set, eligible functions bypass the interpreter.
+    jit: Option<std::sync::Arc<dyn JitDispatcher>>,
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 impl Executor {
     pub fn new() -> Self {
@@ -68,9 +88,24 @@ impl Executor {
             globals: GlobalRegister::new(),
             syscalls: HashMap::new(),
             call_stack: Vec::new(),
+            jit: None,
         };
         ex.register_builtins();
         ex
+    }
+
+    /// Attach a JIT dispatcher.  Eligible function calls will be routed to it
+    /// first; any function the JIT cannot handle falls back to interpretation.
+    /// Accepts an `Arc` so it can be cheaply shared across many `Executor`s.
+    pub fn set_jit(&mut self, dispatcher: std::sync::Arc<dyn JitDispatcher>) {
+        self.jit = Some(dispatcher);
+    }
+
+    /// Try to call function `func_idx` with `args` via the JIT.
+    /// Returns `Some(value)` on success, `None` to use the interpreter path.
+    #[inline]
+    fn jit_dispatch(&self, func_idx: usize, args: &Value) -> Option<Value> {
+        self.jit.as_ref()?.dispatch(func_idx, args)
     }
 
     /// Clear the call stack so this executor can be safely reused for a new
@@ -291,19 +326,33 @@ impl Executor {
                             self.call_stack.last_mut().unwrap().ip = target;
                         }
                         Action::CallFunc(cidx, args) => {
-                            if self.call_stack.len() >= MAX_CALL_DEPTH {
-                                return Err(format!("{}", Fault::StackOverflow));
+                            // Try the JIT first; fall back to interpreter push.
+                            if let Some(ret) = self.jit_dispatch(cidx, &args) {
+                                self.call_stack.last_mut().unwrap().ret_val = ret;
+                            } else {
+                                if self.call_stack.len() >= MAX_CALL_DEPTH {
+                                    return Err(format!("{}", Fault::StackOverflow));
+                                }
+                                self.call_stack.push(CallFrame::new(cidx, args));
                             }
-                            self.call_stack.push(CallFrame::new(cidx, args));
                         }
                         Action::TailCall(cidx, args) => {
-                            let frame = self.call_stack.last_mut().unwrap();
-                            frame.func_idx = cidx;
-                            frame.ip = 0;
-                            frame.frame = Frame::new();
-                            frame.args = args;
-                            frame.ret_val = Value::Null;
-                            // Keep try_guard active so try bounds transcend TCO safely.
+                            // Try the JIT first; fall back to in-place frame reset.
+                            if let Some(ret) = self.jit_dispatch(cidx, &args) {
+                                self.call_stack.pop();
+                                if self.call_stack.is_empty() {
+                                    return Ok(ret);
+                                }
+                                self.call_stack.last_mut().unwrap().ret_val = ret;
+                            } else {
+                                let frame = self.call_stack.last_mut().unwrap();
+                                frame.func_idx = cidx;
+                                frame.ip = 0;
+                                frame.frame = Frame::new();
+                                frame.args = args;
+                                frame.ret_val = Value::Null;
+                                // Keep try_guard active so try bounds transcend TCO safely.
+                            }
                         }
                         Action::Return(val) => {
                             self.call_stack.pop();

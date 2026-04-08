@@ -96,6 +96,12 @@ impl Sandbox {
         self.executor.reset_call_stack();
     }
 
+    /// Attach a JIT dispatcher that accelerates eligible function calls.
+    /// The dispatcher is provided by `fasm-jit` via `fasm_vm::JitDispatcher`.
+    pub fn set_jit(&mut self, dispatcher: std::sync::Arc<dyn fasm_vm::JitDispatcher>) {
+        self.executor.set_jit(dispatcher);
+    }
+
     /// Mount a custom syscall handler.
     pub fn mount_syscall(&mut self, id: i32, handler: SyscallFn) {
         self.executor.mount_syscall(id, handler);

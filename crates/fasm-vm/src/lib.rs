@@ -23,7 +23,7 @@ pub mod fault;
 pub mod memory;
 pub mod value;
 
-pub use executor::Executor;
+pub use executor::{Executor, JitDispatcher};
 pub use fault::Fault;
 pub use memory::{Frame, GlobalRegister};
 pub use value::Value;

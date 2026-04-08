@@ -6,6 +6,7 @@
 
 use fasm_bytecode::Program;
 use fasm_compiler::compile_source;
+use fasm_jit::FasmJit;
 use std::{collections::HashMap, path::Path, sync::Arc};
 use uuid::Uuid;
 
@@ -21,6 +22,8 @@ pub struct RouteEntry {
     segments: Vec<Segment>,
     pub func: String,
     pub program: Arc<Program>,
+    /// Pre-compiled JIT cache for this program.  `None` if no eligible functions.
+    pub jit: Option<Arc<FasmJit>>,
     /// `true` = registered via the management API (can be hot-removed).
     /// `false` = loaded from static config (treated as immutable at runtime).
     pub managed: bool,
@@ -43,6 +46,7 @@ pub struct RouteTable {
 pub struct MatchedRoute {
     pub func: String,
     pub program: Arc<Program>,
+    pub jit: Option<Arc<FasmJit>>,
     /// Extracted path parameters: param name → value.
     pub params: HashMap<String, String>,
 }
@@ -81,12 +85,14 @@ impl RouteTable {
     ) -> Uuid {
         let id = Uuid::new_v4();
         let segments = parse_path(path);
+        let jit = FasmJit::compile(&program).map(Arc::new);
         self.routes.push(RouteEntry {
             id,
             method,
             segments,
             func,
             program,
+            jit,
             managed,
         });
         id
@@ -116,12 +122,14 @@ impl RouteTable {
         }
 
         let id = Uuid::new_v4();
+        let jit = FasmJit::compile(&program).map(Arc::new);
         self.routes.push(RouteEntry {
             id,
             method: method_up,
             segments,
             func,
             program,
+            jit,
             managed: true,
         });
         Ok(id)
@@ -171,6 +179,7 @@ impl RouteTable {
                 return Some(MatchedRoute {
                     func: route.func.clone(),
                     program: route.program.clone(),
+                    jit: route.jit.clone(),
                     params,
                 });
             }
