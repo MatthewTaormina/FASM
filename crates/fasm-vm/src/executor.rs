@@ -913,16 +913,6 @@ impl Executor {
         }
     }
 
-    fn func_name_operand(&self, op: &Operand, program: &Program) -> Result<String, Fault> {
-        match op {
-            Operand::FuncRef(idx) => {
-                program.functions.get(*idx as usize)
-                    .map(|f| f.name.clone())
-                    .ok_or(Fault::UndeclaredSlot)
-            }
-            _ => Err(Fault::TypeMismatch),
-        }
-    }
 
     fn read_key_operand(&self, op: &Operand) -> Result<u32, Fault> {
         match op {
