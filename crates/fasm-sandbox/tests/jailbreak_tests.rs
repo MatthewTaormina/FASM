@@ -478,7 +478,7 @@ mod landlock_tests {
     fn test_landlock_allows_read_inside_allowed_path() {
         let tmp = std::env::temp_dir();
         let mut file = tempfile::NamedTempFile::new_in(&tmp)
-            .expect("could not create temp file");
+            .unwrap_or_else(|e| panic!("could not create temp file in {:?}: {}", tmp, e));
         writeln!(file, "hello").unwrap();
         let path = file.path().to_path_buf();
 
