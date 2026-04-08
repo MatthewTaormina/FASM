@@ -1,5 +1,7 @@
+use serde::{Serialize, Deserialize};
+
 /// Runtime fault codes — matches the spec's hex values.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u32)]
 pub enum Fault {
     NullDeref           = 0x01,

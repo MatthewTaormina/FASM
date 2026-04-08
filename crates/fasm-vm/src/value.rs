@@ -1,7 +1,8 @@
 use std::collections::{HashMap, VecDeque};
+use serde::{Serialize, Deserialize};
 
 /// The runtime value type for every FASM slot.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Value {
     Null,
     Bool(bool),
@@ -35,35 +36,35 @@ pub enum Value {
 
 // ─── collection types ────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct FasmVec(pub Vec<Value>);
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct FasmStruct(pub HashMap<u32, Value>);
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct FasmStack(pub Vec<Value>);
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct FasmQueue(pub VecDeque<Value>);
 
 /// Min-heap: we store values as ordered wrappers. Requires Value: Ord.
 /// For simplicity we store them internally as a sorted Vec and heapify.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct FasmHeapMin(pub Vec<Value>);
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct FasmHeapMax(pub Vec<Value>);
 
 // ─── wrapper types ───────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum FasmOption {
     None,
     Some(Value),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum FasmResult {
     Ok(Value),
     Err(u32), // fault code

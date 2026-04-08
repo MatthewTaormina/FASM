@@ -1,0 +1,32 @@
+// sidecar.fasm
+// Demonstrates triggering a Python sidecar mapped to SYSCALL 99
+
+FUNC Main
+    LOCAL 0, INT32, arg
+    LOCAL 1, INT32, res
+    LOCAL 2, STRUCT, ps
+    
+    // Initialize our arguments and print struct
+    RESERVE 2, STRUCT, NULL
+    
+    // We will pass the integer 21 to the sidecar
+    STORE 21, arg
+    
+    // Trigger Syscall #99 (our Python sidecar)
+    // We pass our Int32 arg to the plugin.
+    SYSCALL 99, arg
+    
+    // The SYSCALL returns to $ret
+    MOV $ret, res
+    
+    // Print a string
+    SET_FIELD ps, 0, "Python Sidecar returned: "
+    SYSCALL 1, ps
+    
+    // Print the result (should be 42)
+    SET_FIELD ps, 0, res
+    SYSCALL 0, ps
+    
+    // Exit nicely
+    RET
+ENDF

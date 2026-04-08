@@ -29,6 +29,18 @@ impl Sandbox {
         self.executor.mount_syscall(id, handler);
     }
 
+    /// Mount an IPC sidecar process as a Syscall.
+    pub fn mount_sidecar(&mut self, id: i32, cmd: &str, args: &[&str]) {
+        use std::sync::{Arc, Mutex};
+        let sidecar = crate::sidecar::SidecarPlugin::new(cmd, args);
+        let locked = Arc::new(Mutex::new(sidecar));
+        
+        self.mount_syscall(id, Box::new(move |val, _| {
+            let mut plg = locked.lock().unwrap();
+            plg.call(&val)
+        }));
+    }
+
     /// Run the program to completion from Main.
     pub fn run(&mut self, program: &Program) -> Result<Value, String> {
         self.executor.run(program)

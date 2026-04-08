@@ -20,7 +20,9 @@
 
 pub mod sandbox;
 pub mod clock;
+pub mod sidecar;
 
 
 pub use sandbox::Sandbox;
 pub use clock::ClockController;
+pub use sidecar::SidecarPlugin;

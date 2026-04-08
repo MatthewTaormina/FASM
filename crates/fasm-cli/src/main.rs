@@ -58,6 +58,7 @@ fn cmd_run(file: &str, extra: &[String]) {
     let clock_hz = parse_clock_hz(extra);
     let mut sandbox = Sandbox::new(0);
     if let Some(hz) = clock_hz { sandbox.set_clock_hz(hz); }
+    parse_plugins(extra, &mut sandbox);
 
     match sandbox.run(&program) {
         Ok(_) => {}
@@ -94,6 +95,7 @@ fn cmd_exec(file: &str, extra: &[String]) {
     let clock_hz = parse_clock_hz(extra);
     let mut sandbox = Sandbox::new(0);
     if let Some(hz) = clock_hz { sandbox.set_clock_hz(hz); }
+    parse_plugins(extra, &mut sandbox);
 
     match sandbox.run(&program) {
         Ok(_) => {}
@@ -148,6 +150,29 @@ fn parse_clock_hz(args: &[String]) -> Option<u64> {
     args.windows(2)
         .find(|w| w[0] == "--clock-hz")
         .and_then(|w| w[1].parse::<u64>().ok())
+}
+
+fn parse_plugins(args: &[String], sandbox: &mut Sandbox) {
+    let mut iter = args.iter();
+    while let Some(arg) = iter.next() {
+        if arg == "--plugin" {
+            if let Some(val) = iter.next() {
+                // format: ID:CMD:ARGS...
+                let parts: Vec<&str> = val.split(':').collect();
+                if parts.len() >= 2 {
+                    if let Ok(id) = parts[0].parse::<i32>() {
+                        let cmd = parts[1];
+                        let cmd_args = &parts[2..];
+                        sandbox.mount_sidecar(id, cmd, cmd_args);
+                    } else {
+                        eprintln!("Invalid plugin ID: {}", parts[0]);
+                    }
+                } else {
+                    eprintln!("Invalid plugin format. Use --plugin ID:CMD:ARG1:ARG2");
+                }
+            }
+        }
+    }
 }
 
 fn print_usage() {
