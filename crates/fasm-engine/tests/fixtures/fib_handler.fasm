@@ -1,0 +1,36 @@
+// fib_handler.fasm — CPU-intensive Fibonacci(30) via iterative loop
+// Used for load/memory benchmarks to exercise the dispatcher under CPU pressure.
+// GET /fib → returns Int32(832040)  [fib(30)]
+
+FUNC FibHandler
+    LOCAL 0, INT32, n
+    LOCAL 1, INT32, a
+    LOCAL 2, INT32, b
+    LOCAL 3, INT32, tmp
+    LOCAL 4, BOOL,  done
+    LOCAL 5, INT32, zero
+    LOCAL 6, INT32, one
+
+    STORE 30,  n
+    STORE 0,   a
+    STORE 1,   b
+    STORE 0,   zero
+    STORE 1,   one
+
+    LABEL FibLoop
+    EQ n, zero, done
+    JNZ done, FibDone
+
+    ADD a, b, tmp
+    MOV b, a
+    MOV tmp, b
+    SUB n, one, n
+    JMP FibLoop
+
+    LABEL FibDone
+    RET a
+ENDF
+
+FUNC Main
+    RET
+ENDF

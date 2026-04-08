@@ -1,0 +1,12 @@
+// ping.fasm — minimal health-check handler
+// GET /ping → returns Int32(200)
+
+FUNC Ping
+    LOCAL 0, INT32, status
+    STORE 200, status
+    RET status
+ENDF
+
+FUNC Main
+    RET
+ENDF

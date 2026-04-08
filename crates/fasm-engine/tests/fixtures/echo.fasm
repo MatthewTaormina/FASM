@@ -1,0 +1,17 @@
+// echo.fasm — path-param echo handler
+// GET /echo/:word → returns the bytes of :word
+//
+// The engine packs path params as VEC<UINT8> fields in $args:
+//   field 0 = first path param bytes
+//
+// We extract field 0 from $args and return it.
+
+FUNC Echo
+    LOCAL 0, VEC, param_bytes
+    GET_FIELD $args, 0, param_bytes
+    RET param_bytes
+ENDF
+
+FUNC Main
+    RET
+ENDF
