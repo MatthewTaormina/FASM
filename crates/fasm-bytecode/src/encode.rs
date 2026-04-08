@@ -437,7 +437,7 @@ mod tests {
     #[test]
     fn test_truncated_input_returns_error() {
         assert!(decode_program(&[]).is_err());
-        assert!(decode_program(&[b'F', b'S', b'M', b'C']).is_err());
+        assert!(decode_program(b"FSMC").is_err());
     }
 
     // ── Empty program round-trip ──────────────────────────────────────────────
@@ -545,8 +545,8 @@ mod tests {
 
     #[test]
     fn test_immediate_floats_round_trip() {
-        let op32 = Operand::Imm(Immediate::Float32(3.14_f32));
-        let op64 = Operand::Imm(Immediate::Float64(2.718_281_828_459_045_f64));
+        let op32 = Operand::Imm(Immediate::Float32(1.5_f32));
+        let op64 = Operand::Imm(Immediate::Float64(1.5_f64));
         for op in [op32, op64] {
             let instr = Instruction::new(Opcode::Store, vec![op.clone()]);
             let rt = round_trip(&simple_program(vec![instr]));

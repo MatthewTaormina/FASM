@@ -32,10 +32,10 @@ fn test_lexer_hex_literal() {
 
 #[test]
 fn test_lexer_float_literal() {
-    let tokens = tokenize("3.14").unwrap();
+    let tokens = tokenize("1.5").unwrap();
     assert_eq!(tokens.len(), 2);
     match &tokens[0].kind {
-        TokenKind::Float(f) => assert!((*f - 3.14).abs() < 1e-10),
+        TokenKind::Float(f) => assert!((*f - 1.5).abs() < 1e-10),
         _ => panic!("expected float token"),
     }
 }
