@@ -216,7 +216,7 @@ pub struct FasmBitset {
 
 impl FasmBitset {
     pub fn new(len_bits: u32) -> Self {
-        let n_bytes = ((len_bits + 7) / 8) as usize;
+        let n_bytes = len_bits.div_ceil(8) as usize;
         Self {
             bytes: vec![0u8; n_bytes],
             len: len_bits,
@@ -271,7 +271,7 @@ impl FasmBitset {
 
     /// Extend the bitset to at least `new_len_bits` capacity (zero-fill new bits).
     pub fn grow_to(&mut self, new_len_bits: u32) {
-        let new_byte_count = ((new_len_bits + 7) / 8) as usize;
+        let new_byte_count = new_len_bits.div_ceil(8) as usize;
         if new_byte_count > self.bytes.len() {
             self.bytes.resize(new_byte_count, 0);
         }
@@ -312,7 +312,7 @@ impl FasmBitvec {
     pub fn write_bits(&mut self, bit_start: u64, bit_len: u32, value: u64) {
         let bit_len = (bit_len as u64).min(64);
         let end_bit = bit_start + bit_len;
-        let needed_bytes = ((end_bit + 7) / 8) as usize;
+        let needed_bytes = end_bit.div_ceil(8) as usize;
         if needed_bytes > self.bytes.len() {
             self.bytes.resize(needed_bytes, 0);
         }

@@ -179,7 +179,7 @@ impl Executor {
 
                 let mut result: i64 = 0;
                 for &b in digits {
-                    if b < b'0' || b > b'9' {
+                    if !b.is_ascii_digit() {
                         return Ok(Value::Result(Box::new(FasmResult::Err(ERR_BAD_INPUT))));
                     }
                     result = result * 10 + (b - b'0') as i64;
@@ -221,7 +221,7 @@ impl Executor {
         for instr in &program.global_inits {
             if let Opcode::Reserve = instr.opcode {
                 if let (Some(Operand::Key(idx)), Some(Operand::Type(t)), Some(init)) = (
-                    instr.operands.get(0),
+                    instr.operands.first(),
                     instr.operands.get(1),
                     instr.operands.get(2),
                 ) {
@@ -432,7 +432,7 @@ impl Executor {
             Opcode::Div => {
                 let a = read_val!(get_op!(0));
                 let b = read_val!(get_op!(1));
-                if b.is_truthy() == false {
+                if !b.is_truthy() {
                     return Err(Fault::DivisionByZero);
                 }
                 let r = a.div(&b).ok_or(Fault::TypeMismatch)?;
@@ -442,7 +442,7 @@ impl Executor {
             Opcode::Mod => {
                 let a = read_val!(get_op!(0));
                 let b = read_val!(get_op!(1));
-                if b.is_truthy() == false {
+                if !b.is_truthy() {
                     return Err(Fault::DivisionByZero);
                 }
                 let r = a.rem(&b).ok_or(Fault::TypeMismatch)?;
