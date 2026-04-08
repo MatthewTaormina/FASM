@@ -21,8 +21,11 @@
 pub mod sandbox;
 pub mod clock;
 pub mod sidecar;
+pub mod plugin_manifest;
 
 
-pub use sandbox::Sandbox;
+pub use sandbox::{Sandbox, SandboxConfig};
 pub use clock::ClockController;
 pub use sidecar::SidecarPlugin;
+pub use plugin_manifest::{PluginManifest, discover_auto_mount, load_manifest};
+

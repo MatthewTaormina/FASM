@@ -1,7 +1,23 @@
+use std::path::Path;
 use fasm_bytecode::Program;
 use fasm_vm::{Executor, Value};
+use fasm_vm::value::FasmStruct;
 use fasm_vm::executor::SyscallFn;
 use crate::clock::ClockController;
+use crate::plugin_manifest;
+
+// ── Config types ──────────────────────────────────────────────────────────────
+
+/// Configuration for constructing a pre-wired sandbox.
+#[derive(Debug, Clone, Default)]
+pub struct SandboxConfig {
+    /// Optional clock limit (0 = unlimited).
+    pub clock_hz: u64,
+    /// Directory to scan for `*.plugin.toml` manifests.
+    pub plugin_discovery_dir: Option<std::path::PathBuf>,
+}
+
+// ── Sandbox ───────────────────────────────────────────────────────────────────
 
 /// An isolated execution context for a single FASM program.
 pub struct Sandbox {
@@ -17,6 +33,21 @@ impl Sandbox {
             executor: Executor::new(),
             clock: ClockController::new(),
         }
+    }
+
+    /// Construct a sandbox from a [`SandboxConfig`].
+    ///
+    /// This reads the `plugin_discovery_dir` (if set) and auto-mounts all
+    /// plugins whose manifest has `auto_mount = true`.
+    pub fn from_config(id: u64, config: &SandboxConfig) -> Self {
+        let mut sb = Self::new(id);
+        if config.clock_hz > 0 {
+            sb.set_clock_hz(config.clock_hz);
+        }
+        if let Some(ref dir) = config.plugin_discovery_dir {
+            sb.mount_sidecar_from_discovery(dir);
+        }
+        sb
     }
 
     /// Set instructions-per-tick limit (0 = unlimited).
@@ -49,8 +80,38 @@ impl Sandbox {
         }
     }
 
-    /// Run the program to completion from Main.
+    /// Scan `dir` for `*.plugin.toml` manifests and auto-mount all plugins
+    /// with `auto_mount = true`.
+    ///
+    /// Each plugin launches its sidecar process and routes the declared
+    /// `syscall_ids` to it.  Missing or malformed manifests are logged and
+    /// skipped.
+    pub fn mount_sidecar_from_discovery(&mut self, dir: &Path) {
+        let manifests = plugin_manifest::discover_auto_mount(dir);
+        eprintln!("[fasm-sandbox] discovered {} auto-mount plugins in {:?}", manifests.len(), dir);
+
+        for m in manifests {
+            let arg_refs: Vec<&str> = m.args.iter().map(String::as_str).collect();
+            eprintln!("[fasm-sandbox] mounting plugin '{}' syscalls={:?} cmd={:?}", m.name, m.syscall_ids, m.cmd);
+            self.mount_shared_sidecar(&m.syscall_ids, &m.cmd, &arg_refs);
+        }
+    }
+
+    /// Run the program to completion from `Main`.
     pub fn run(&mut self, program: &Program) -> Result<Value, String> {
         self.executor.run(program)
+    }
+
+    /// Run the program starting from a named entry-point function.
+    ///
+    /// `args` is passed as the function's `$args` struct — useful for HTTP
+    /// request handlers, scheduled tasks, and event handlers.
+    pub fn run_named(&mut self, program: &Program, func: &str, args: Value) -> Result<Value, String> {
+        self.executor.run_named(program, func, args)
+    }
+
+    /// Convenience: run a named entry point with an empty `$args` struct.
+    pub fn run_func(&mut self, program: &Program, func: &str) -> Result<Value, String> {
+        self.executor.run_named(program, func, Value::Struct(FasmStruct::default()))
     }
 }
