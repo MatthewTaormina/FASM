@@ -1,7 +1,7 @@
 //! Plugin manifest: loads `*.plugin.toml` files from a plugins directory and
 //! produces the metadata the sandbox needs to auto-mount sidecar processes.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Parsed representation of a `*.plugin.toml` manifest file.
 ///
@@ -78,16 +78,12 @@ pub fn load_manifest(path: &Path) -> Result<PluginManifest, String> {
 /// We keep a manual parser to avoid pulling the full `toml` crate into
 /// `fasm-sandbox` — the format is simple enough to handle line-by-line.
 pub fn parse_manifest(toml: &str) -> Result<PluginManifest, String> {
-    use std::collections::HashMap;
-
     let mut name = None::<String>;
     let mut cmd = None::<String>;
     let mut args: Vec<String> = Vec::new();
     let mut syscall_ids: Vec<i32> = Vec::new();
     let mut auto_mount = false;
     let mut in_plugin = false;
-
-    let mut inline_arrays: HashMap<String, String> = HashMap::new();
 
     // Collect logical lines (handle arrays that may span multiple lines).
     let mut logical_lines: Vec<String> = Vec::new();

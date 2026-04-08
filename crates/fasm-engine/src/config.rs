@@ -141,19 +141,14 @@ pub struct ScheduleConfig {
     pub misfire_policy: MisfirePolicy,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum MisfirePolicy {
     /// Skip the fired tick (default).
+    #[default]
     Skip,
     /// Run the tick even if a previous one is still in flight.
     RunAll,
-}
-
-impl Default for MisfirePolicy {
-    fn default() -> Self {
-        MisfirePolicy::Skip
-    }
 }
 
 // ── Queue ─────────────────────────────────────────────────────────────────────

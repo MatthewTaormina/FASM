@@ -8,11 +8,9 @@
 
 use fasm_bytecode::Program;
 use fasm_sandbox::{Sandbox, SandboxConfig};
-use fasm_vm::value::FasmStruct;
 use fasm_vm::Value;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
-use uuid::Uuid;
 
 use crate::metrics::MetricsRegistry;
 
@@ -100,7 +98,7 @@ impl TaskDispatcher {
         })?;
 
         let func = req.func.clone();
-        let trigger = req.trigger.clone();
+        let _trigger = req.trigger.clone();
         let metrics = self.metrics.clone();
 
         metrics.record_invocation(&func);

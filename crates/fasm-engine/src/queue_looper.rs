@@ -20,7 +20,7 @@ use crate::{
     config::QueueConfig,
     dispatcher::{EngineError, ExecRequest, TaskDispatcher},
     metrics::MetricsRegistry,
-    queues::{QueueRegistry, SharedQueue},
+    queues::QueueRegistry,
 };
 
 /// Spawn one queue-looper task.

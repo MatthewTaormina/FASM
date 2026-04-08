@@ -146,7 +146,7 @@ fn cmd_bench(file: &str, extra: &[String]) {
         }
     };
 
-    let iterations: usize = extra.get(0).and_then(|s| s.parse().ok()).unwrap_or(10_000);
+    let iterations: usize = extra.first().and_then(|s| s.parse().ok()).unwrap_or(10_000);
     println!(
         "Benchmarking '{}' with pre-loaded VM across {} iterations...",
         file, iterations

@@ -34,6 +34,7 @@ enum Segment {
 
 // ── RouteTable ─────────────────────────────────────────────────────────────────
 
+#[derive(Default)]
 pub struct RouteTable {
     routes: Vec<RouteEntry>,
 }
@@ -48,7 +49,7 @@ pub struct MatchedRoute {
 
 impl RouteTable {
     pub fn new() -> Self {
-        Self { routes: Vec::new() }
+        Self::default()
     }
 
     /// Build a `RouteTable` from the list of static route configs.
@@ -208,8 +209,8 @@ fn parse_path(path: &str) -> Vec<Segment> {
     path.trim_matches('/')
         .split('/')
         .map(|s| {
-            if s.starts_with(':') {
-                Segment::Param(s[1..].to_string())
+            if let Some(rest) = s.strip_prefix(':') {
+                Segment::Param(rest.to_string())
             } else {
                 Segment::Literal(s.to_string())
             }

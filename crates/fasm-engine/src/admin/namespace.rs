@@ -29,7 +29,7 @@ pub async fn create_namespace(
     Json(body): Json<CreateNsBody>,
 ) -> Response {
     if let Err(r) = require_auth(&headers, &state) {
-        return r;
+        return *r;
     }
     if let Err(e) = validate_namespace(&body.name) {
         return (StatusCode::BAD_REQUEST, e).into_response();
@@ -59,7 +59,7 @@ pub async fn delete_namespace(
     Path(ns): Path<String>,
 ) -> Response {
     if let Err(r) = require_auth(&headers, &state) {
-        return r;
+        return *r;
     }
     match state.registry.delete_namespace(&ns).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),

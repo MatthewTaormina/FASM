@@ -14,14 +14,7 @@ use fasm_bytecode::Program;
 use fasm_compiler::compile_source;
 use fasm_vm::value::FasmStruct;
 use fasm_vm::Value;
-use std::{
-    path::Path,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
+use std::{path::Path, sync::Arc, time::Duration};
 
 use crate::{
     config::{MisfirePolicy, ScheduleConfig},

@@ -32,7 +32,7 @@ pub async fn create_app(
     Json(body): Json<CreateAppBody>,
 ) -> Response {
     if let Err(r) = require_auth(&headers, &state) {
-        return r;
+        return *r;
     }
     match state.registry.create_app(&ns, &body.name).await {
         Ok(manifest) => (StatusCode::CREATED, Json(manifest)).into_response(),
@@ -66,7 +66,7 @@ pub async fn delete_app(
     Path((ns, app)): Path<(String, String)>,
 ) -> Response {
     if let Err(r) = require_auth(&headers, &state) {
-        return r;
+        return *r;
     }
 
     // Collect route IDs to unload before the manifest is deleted.

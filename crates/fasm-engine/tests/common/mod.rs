@@ -8,6 +8,8 @@
 //! engine.shutdown(); // also called on drop
 //! ```
 
+#![allow(dead_code)]
+
 use std::{net::SocketAddr, path::PathBuf, time::Duration};
 use tokio::task::JoinHandle;
 

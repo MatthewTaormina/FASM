@@ -298,7 +298,7 @@ mod tests {
     fn test_requeue_expired_sends_timed_out_messages_back() {
         let q = SharedQueue::new(3, 0); // 0 second timeout → immediately expired
         q.send(serde_json::json!("urgent"));
-        let msg = q.try_dequeue().unwrap();
+        let _msg = q.try_dequeue().unwrap();
         // Don't ack — let it expire
         // With a 0s timeout, requeue_expired should put it back immediately
         q.requeue_expired();

@@ -59,7 +59,7 @@ pub async fn register_route(
     Json(body): Json<RegisterRouteBody>,
 ) -> Response {
     if let Err(r) = require_auth(&headers, &state) {
-        return r;
+        return *r;
     }
 
     // Verify the app exists and the file is uploaded.
@@ -128,7 +128,7 @@ pub async fn unregister_route(
     Path((ns, app, route_id_str)): Path<(String, String, String)>,
 ) -> Response {
     if let Err(r) = require_auth(&headers, &state) {
-        return r;
+        return *r;
     }
 
     let route_id = match Uuid::parse_str(&route_id_str) {

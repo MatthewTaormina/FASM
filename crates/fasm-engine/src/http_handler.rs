@@ -88,7 +88,7 @@ pub async fn handle_request(
     let mut field_idx: u32 = 0;
 
     // ── Path params (ordered by pattern position, always VEC<UINT8>) ───────────
-    for (_name, val) in &matched.params {
+    for val in matched.params.values() {
         let bytes: Vec<Value> = val.bytes().map(Value::Uint8).collect();
         args_struct.insert(field_idx, Value::Vec(FasmVec(bytes)));
         field_idx += 1;

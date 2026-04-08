@@ -50,7 +50,7 @@ pub async fn upload_file(
     body: Bytes,
 ) -> Response {
     if let Err(r) = require_auth(&headers, &state) {
-        return r;
+        return *r;
     }
 
     // Decompress if Content-Encoding: gzip
@@ -121,7 +121,7 @@ pub async fn delete_file(
     Path((ns, app, filename)): Path<(String, String, String)>,
 ) -> Response {
     if let Err(r) = require_auth(&headers, &state) {
-        return r;
+        return *r;
     }
     match state.registry.delete_file(&ns, &app, &filename).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),

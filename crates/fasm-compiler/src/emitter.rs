@@ -971,8 +971,8 @@ fn ast_val_to_slot(val: &AstValue, ctx: &FuncCtx) -> Option<SlotRef> {
     match val {
         AstValue::Deref(name) => {
             // &t0 -> deref tmp
-            if name.starts_with('t') {
-                if let Ok(num) = name[1..].parse::<u8>() {
+            if let Some(rest) = name.strip_prefix('t') {
+                if let Ok(num) = rest.parse::<u8>() {
                     if num <= 15 {
                         return Some(SlotRef::DerefTmp(num));
                     }
@@ -1007,10 +1007,8 @@ fn ast_val_to_slot(val: &AstValue, ctx: &FuncCtx) -> Option<SlotRef> {
                         return Some(SlotRef::Local(idx));
                     }
                     // DEFINE that is a number?
-                    if let Some(def_val) = ctx.defines.get(name) {
-                        if let AstValue::Integer(n) = def_val {
-                            return Some(SlotRef::Local(*n as u8));
-                        }
+                    if let Some(AstValue::Integer(n)) = ctx.defines.get(name) {
+                        return Some(SlotRef::Local(*n as u8));
                     }
                     None
                 }
@@ -1026,7 +1024,7 @@ fn ast_value_to_operand(
     val: &AstValue,
     defines: &HashMap<String, AstValue>,
     locals: &HashMap<String, u8>,
-    params: &HashMap<String, u32>,
+    _params: &HashMap<String, u32>,
     _extra: &[()],
 ) -> Operand {
     match val {
@@ -1039,8 +1037,8 @@ fn ast_value_to_operand(
         // String literals compile to VEC<UINT8> at runtime via Immediate::Str
         AstValue::Str(s) => Operand::Imm(Immediate::Str(s.clone())),
         AstValue::Deref(name) => {
-            if name.starts_with('t') {
-                if let Ok(num) = name[1..].parse::<u8>() {
+            if let Some(rest) = name.strip_prefix('t') {
+                if let Ok(num) = rest.parse::<u8>() {
                     if num <= 15 {
                         return Operand::Slot(SlotRef::DerefTmp(num));
                     }
@@ -1075,7 +1073,7 @@ fn ast_value_to_operand(
                 }
                 // DEFINE constant?
                 if let Some(def_val) = defines.get(name) {
-                    return ast_value_to_operand(def_val, defines, locals, params, _extra);
+                    return ast_value_to_operand(def_val, defines, locals, _params, _extra);
                 }
                 // Integer literal that was parsed as ident? Shouldn't happen but fallback
                 if let Ok(n) = name.parse::<i64>() {
