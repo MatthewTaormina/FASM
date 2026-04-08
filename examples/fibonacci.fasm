@@ -1,39 +1,53 @@
 DEFINE ARG_N, 0
+DEFINE ARG_A, 1
+DEFINE ARG_B, 2
 
 FUNC Fibonacci
     PARAM ARG_N, INT32, n, REQUIRED
+    PARAM ARG_A, INT32, a, REQUIRED
+    PARAM ARG_B, INT32, b, REQUIRED
 
-    LOCAL 0, BOOL,   is_base
-    LOCAL 1, INT32,  n_val
-    LOCAL 2, INT32,  n_minus_1
-    LOCAL 3, INT32,  n_minus_2
-    LOCAL 4, INT32,  res1
-    LOCAL 5, INT32,  res2
-    LOCAL 6, INT32,  result
-    LOCAL 7, STRUCT, call_args
+    LOCAL 0, BOOL,   is_base_0
+    LOCAL 1, BOOL,   is_base_1
+    LOCAL 2, INT32,  n_val
+    LOCAL 3, INT32,  a_val
+    LOCAL 4, INT32,  b_val
+    LOCAL 5, INT32,  next_n
+    LOCAL 6, INT32,  next_b
+    LOCAL 7, STRUCT, next_args
 
     GET_FIELD $args, ARG_N, n_val
+    GET_FIELD $args, ARG_A, a_val
+    GET_FIELD $args, ARG_B, b_val
 
-    LABEL BaseCheck
-    LTE n_val, 1, is_base
-    JNZ is_base, BaseCase
+    // if n == 0, return a
+    EQ n_val, 0, is_base_0
+    JNZ is_base_0, Base0
 
-    SUB n_val, 1, n_minus_1
+    // if n == 1, return b
+    EQ n_val, 1, is_base_1
+    JNZ is_base_1, Base1
+
+    // next_n = n - 1
+    SUB n_val, 1, next_n
+
+    // next_b = a + b
+    ADD a_val, b_val, next_b
+
+    // Tail Recursive Call: Fibonacci(n-1, b, a+b)
     RESERVE 7, STRUCT, NULL
-    SET_FIELD call_args, ARG_N, n_minus_1
-    CALL Fibonacci, call_args
-    MOV $ret, res1
+    SET_FIELD next_args, ARG_N, next_n
+    SET_FIELD next_args, ARG_A, b_val
+    SET_FIELD next_args, ARG_B, next_b
 
-    SUB n_val, 2, n_minus_2
-    SET_FIELD call_args, ARG_N, n_minus_2
-    CALL Fibonacci, call_args
-    MOV $ret, res2
+    TAIL_CALL Fibonacci, next_args
+    RET $ret
 
-    ADD res1, res2, result
-    RET result
+    LABEL Base0
+    RET a_val
 
-    LABEL BaseCase
-    RET n_val
+    LABEL Base1
+    RET b_val
 ENDF
 
 FUNC Main
@@ -42,7 +56,11 @@ FUNC Main
     LOCAL 2, STRUCT, print_args
 
     RESERVE 1, STRUCT, NULL
-    SET_FIELD args, ARG_N, 19
+    // Set up n=30, a=0, b=1
+    SET_FIELD args, ARG_N, 30
+    SET_FIELD args, ARG_A, 0
+    SET_FIELD args, ARG_B, 1
+    
     CALL Fibonacci, args
     MOV $ret, answer
 

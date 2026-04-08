@@ -141,6 +141,12 @@ Invokes a defined function, passing a `STRUCT` as the argument register.
 - **Validation**: The static validator checks that all `REQUIRED` params are present as keys in the provided struct.
 - **Return Value**: After `CALL` returns, the result is available via the special symbol `$ret`.
 
+### TAIL_CALL name, struct
+Invokes a defined function recursively, optimizing memory allocations by forcefully replacing the active Call Frame context.
+- **Usage**: Used strictly at the end of functions (`TAIL_CALL ... ; RET ...`) to avoid allocating unnecessary deep memory structures inside logical `while` or recursion blocks.
+- **Behavior**: Replaces the active memory map inside the sandbox. Bypasses `StackOverflow` bounds limitations seamlessly, providing $O(1)$ memory usage for deep loops.
+- **Return Value**: After execution successfully resolves later down the chain, it propagates directly backwards to the original calling parent's `$ret` symbol.
+
 ### ASYNC CALL name, struct
 Invokes a function asynchronously.
 - **Behavior**: Spawns a new execution context within the current sandbox. Immediately stores a `FUTURE` handle in `$ret`.
