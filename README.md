@@ -268,37 +268,69 @@ cargo bench -p fasm-engine   # HTML reports → target/criterion/
 
 ## FaaS Engine
 
-The `fasm-engine` crate turns the FASM VM into a fully-featured serverless runtime:
+The `fasm-engine` crate turns the FASM VM into a fully-featured serverless runtime with a live deploy API — upload FASM functions into a running engine without config changes or restarts.
 
 ```toml
-# config.toml
+# engine.toml
 [server]
 host = "127.0.0.1"
 port  = 8080
 
 [engine]
-max_concurrent = 64   # back-pressure limit
+max_concurrent = 64
 
-[[routes]]
-method   = "GET"
-path     = "/users/:id"
-function = "GetUser"
-source   = "user.fasm"
+[storage]
+data_dir    = "./data"
+admin_token = "secret"   # optional — required on all write endpoints
 ```
 
 ```sh
-cargo run -p fasm-engine -- --config config.toml --dir ./functions
+cargo run -p fasm-engine -- --config engine.toml --dir ./functions
 ```
 
-Exposed endpoints:
+### Deploy a function (no restart)
+
+```sh
+# 1. Org namespace
+curl -X POST http://localhost:8080/api/v1/namespaces \
+  -H "X-Admin-Token: secret" -d '{"name":"com.acme"}'
+
+# 2. App
+curl -X POST http://localhost:8080/api/v1/namespaces/com.acme/apps \
+  -d '{"name":"payments"}'
+
+# 3. Upload FASM source (or .fasmc bytecode, raw or gzip)
+curl -X PUT http://localhost:8080/api/v1/namespaces/com.acme/apps/payments/files/charge.fasm \
+  --data-binary @charge.fasm
+
+# 4. Register entry point — takes effect immediately
+curl -X POST http://localhost:8080/api/v1/namespaces/com.acme/apps/payments/routes \
+  -d '{"method":"POST","path":"/pay","function":"Charge","file":"charge.fasm"}'
+
+# 5. Call it
+curl -X POST http://localhost:8080/pay -d '{"amount":99}'
+
+# 6. Hot-swap: upload new version, delete old route, re-register
+curl -X DELETE http://localhost:8080/api/v1/namespaces/com.acme/apps/payments/routes/<uuid>
+curl -X POST   http://localhost:8080/api/v1/namespaces/com.acme/apps/payments/routes \
+  -d '{"method":"POST","path":"/pay","function":"Charge","file":"charge.fasm"}'
+```
+
+Deployments are persisted to `manifest.json` and automatically reloaded on engine restart.
+
+### Exposed endpoints
 
 | Endpoint | Description |
 |---|---|
 | `GET /metrics` | Prometheus-format counters (invocations, errors, queue depth, …) |
 | `GET /admin/queues` | Live queue state as JSON |
-| Any route | Dispatched to matching FASM handler |
+| `GET/POST /api/v1/namespaces` | Namespace management |
+| `GET/POST/DELETE /api/v1/namespaces/:ns/apps` | App management |
+| `PUT/GET/DELETE /api/v1/namespaces/:ns/apps/:app/files/:f` | File upload/download |
+| `GET/POST/DELETE /api/v1/namespaces/:ns/apps/:app/routes` | Route hot-registration |
+| Any other path | Dispatched to matching FASM handler |
 
-See [`crates/fasm-engine/README.md`](crates/fasm-engine/README.md) for the full architecture, handler convention, and performance numbers.
+See [`crates/fasm-engine/README.md`](crates/fasm-engine/README.md) for the full API reference, config schema, and performance numbers.
 
 ---
 
