@@ -330,6 +330,7 @@ fn is_keyword(s: &str) -> bool {
         "RESERVE"|"RELEASE"|"MOV"|"STORE"|"ADDR"|"ADD"|"SUB"|"MUL"|"DIV"|"MOD"|"NEG"|
         "EQ"|"NEQ"|"LT"|"LTE"|"GT"|"GTE"|"AND"|"OR"|"XOR"|"NOT"|"SHL"|"SHR"|
         "JMP"|"JZ"|"JNZ"|"LABEL"|"PUSH"|"POP"|"ENQUEUE"|"DEQUEUE"|"PEEK"|
+        "TMP_BLOCK"|"END_TMP"|
         "GET_IDX"|"SET_IDX"|"GET_FIELD"|"SET_FIELD"|"HAS_FIELD"|"DEL_FIELD"|"LEN"|
         "CAST"|"TRY"|"CATCH"|"ENDTRY"|"IMPORT"|"INCLUDE"|"DEFINE"|"IFDEF"|
         "IFNDEF"|"ELSE"|"ENDIF"|"MACRO"|"ENDM"|"ASSERT"|

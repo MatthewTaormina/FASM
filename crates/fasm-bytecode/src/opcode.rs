@@ -40,6 +40,8 @@ pub enum Opcode {
     Ret         = 0x45,
     Await       = 0x46,
     TailCall    = 0x47,
+    TmpBlock    = 0x48,
+    EndTmp      = 0x49,
     // Syscalls
     Syscall     = 0x50,
     AsyncSyscall= 0x51,
@@ -147,6 +149,8 @@ impl TryFrom<u8> for Opcode {
             0x45 => Ok(Opcode::Ret),
             0x46 => Ok(Opcode::Await),
             0x47 => Ok(Opcode::TailCall),
+            0x48 => Ok(Opcode::TmpBlock),
+            0x49 => Ok(Opcode::EndTmp),
             0x50 => Ok(Opcode::Syscall),
             0x51 => Ok(Opcode::AsyncSyscall),
             0x60 => Ok(Opcode::Push),

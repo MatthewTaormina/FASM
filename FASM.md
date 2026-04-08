@@ -107,6 +107,36 @@ Divides `src1` by `src2` and stores the result in the target index.
 ### MOD src1, src2, target
 Calculates the remainder of `src1 / src2` and stores it in the target index.
 
+### Try / Catch Blocks
+Exception handling bounds specific block areas, guaranteeing final state control in error cases:
+
+```fasm
+TRY ErrorHandler
+    // Protected operations
+    DIV 10, 0, result
+CATCH
+    // Handle error state
+    // Result $fault_code and $fault_index are populated
+ENDTRY
+```
+
+### Temporary Registers (TMP_BLOCK)
+To perform atomic mathematical calculations or multi-step filtering without declaring and pushing local variables, you can create a temporary variable frame using `TMP_BLOCK`.
+
+The VM allocates a bounded 16-register stack frame limit inside a `TMP_BLOCK`, accessible via `t0` to `t15`. When an `END_TMP` operation concludes the block, the memory of these registers is automatically freed. Any jumps (`JMP`, `JZ`, `JNZ`) are strictly forbidden inside a `TMP_BLOCK` to ensure atomic state stability.
+
+```fasm
+FUNC math_calc
+    TMP_BLOCK
+        MOV 100, t0
+        MOV 50, t1
+        ADD t0, t1, t2
+        SYSCALL 0, t2  // prints 150
+    END_TMP
+ENDF
+```
+Temporary blocks can be nested, with each block producing a clean register slate `t0`-`t15`.
+
 ## Functions
 
 All functions and syscalls use a **unified calling convention**: arguments are always passed as a single `STRUCT` argument register. This makes calls self-describing and argument order irrelevant — all values are accessed by key.

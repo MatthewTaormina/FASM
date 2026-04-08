@@ -5,9 +5,12 @@ use crate::types::FasmType;
 pub enum SlotRef {
     Local(u8),
     Global(u16),
+    /// Tmp block dynamic register.
+    Tmp(u8),
     /// Dereferenced (&slot) — follow the reference stored in this slot.
     DerefLocal(u8),
     DerefGlobal(u16),
+    DerefTmp(u8),
     /// Special built-in symbol: $args (incoming struct), $ret (return value),
     /// $fault_index, $fault_code.
     BuiltIn(BuiltIn),

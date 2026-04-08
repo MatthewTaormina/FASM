@@ -1,0 +1,8 @@
+FUNC Main
+    TMP_BLOCK
+        JMP ErrorState
+    END_TMP
+    
+LABEL ErrorState
+    RET 0
+ENDF

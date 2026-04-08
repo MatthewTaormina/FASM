@@ -43,6 +43,20 @@ impl Frame {
     }
 }
 
+/// Transient execution frame for TMP blocks (t0-t15).
+#[derive(Debug, Clone)]
+pub struct TmpFrame {
+    pub slots: [Option<Value>; 16],
+}
+impl Default for TmpFrame {
+    fn default() -> Self {
+        Self { slots: Default::default() }
+    }
+}
+impl TmpFrame {
+    pub fn new() -> Self { Self::default() }
+}
+
 /// Global register — unlimited slots indexed by u32.
 #[derive(Debug, Clone, Default)]
 pub struct GlobalRegister {

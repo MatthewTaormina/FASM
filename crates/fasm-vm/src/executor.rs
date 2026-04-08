@@ -33,6 +33,7 @@ struct CallFrame {
     args: Value,             // the incoming STRUCT ($args)
     ret_val: Value,          // $ret
     try_guard: Option<TryGuard>,
+    tmp_frames: Vec<crate::memory::TmpFrame>,
 }
 
 impl CallFrame {
@@ -44,6 +45,7 @@ impl CallFrame {
             args,
             ret_val: Value::Null,
             try_guard: None,
+            tmp_frames: vec![],
         }
     }
 }
@@ -293,6 +295,19 @@ impl Executor {
             Opcode::Halt => Ok(Action::Halt),
 
             // ── Memory ──────────────────────────────────────────────────────
+            Opcode::TmpBlock => {
+                let cf = self.call_stack.last_mut().unwrap();
+                cf.tmp_frames.push(crate::memory::TmpFrame::new());
+                Ok(Action::Continue)
+            }
+            Opcode::EndTmp => {
+                let cf = self.call_stack.last_mut().unwrap();
+                if cf.tmp_frames.pop().is_none() {
+                    return Err(Fault::IndexOutOfBounds); // unmatched END_TMP
+                }
+                Ok(Action::Continue)
+            }
+
             Opcode::Reserve => {
                 let idx_op = get_op!(0);
                 let type_op = get_op!(1);
@@ -1126,12 +1141,25 @@ impl Executor {
                 let cf = self.call_stack.last().unwrap();
                 cf.frame.get(*idx).cloned().ok_or(Fault::UndeclaredSlot)
             }
+            SlotRef::Tmp(idx) => {
+                let cf = self.call_stack.last().unwrap();
+                let f = cf.tmp_frames.last().ok_or(Fault::IndexOutOfBounds)?; // no tmp block active
+                if *idx > 15 { return Err(Fault::IndexOutOfBounds); }
+                f.slots[*idx as usize].clone().ok_or(Fault::UndeclaredSlot) // Tmp slots must have been written to
+            }
             SlotRef::Global(idx) => {
                 self.globals.get(*idx as u32).cloned().ok_or(Fault::UndeclaredSlot)
             }
             SlotRef::DerefLocal(idx) => {
                 let cf = self.call_stack.last().unwrap();
                 let ref_val = cf.frame.get(*idx).ok_or(Fault::UndeclaredSlot)?;
+                self.deref_value(ref_val)
+            }
+            SlotRef::DerefTmp(idx) => {
+                let cf = self.call_stack.last().unwrap();
+                let f = cf.tmp_frames.last().ok_or(Fault::IndexOutOfBounds)?;
+                if *idx > 15 { return Err(Fault::IndexOutOfBounds); }
+                let ref_val = f.slots[*idx as usize].as_ref().ok_or(Fault::UndeclaredSlot)?;
                 self.deref_value(ref_val)
             }
             SlotRef::DerefGlobal(idx) => {
@@ -1178,6 +1206,13 @@ impl Executor {
                 self.call_stack.last_mut().unwrap().frame.set(*idx, val);
                 Ok(())
             }
+            SlotRef::Tmp(idx) => {
+                let cf = self.call_stack.last_mut().unwrap();
+                let f = cf.tmp_frames.last_mut().ok_or(Fault::IndexOutOfBounds)?;
+                if *idx > 15 { return Err(Fault::IndexOutOfBounds); }
+                f.slots[*idx as usize] = Some(val);
+                Ok(())
+            }
             SlotRef::Global(idx) => {
                 self.globals.set(*idx as u32, val);
                 Ok(())
@@ -1186,6 +1221,15 @@ impl Executor {
                 let ref_val = {
                     let cf = self.call_stack.last().unwrap();
                     cf.frame.get(*idx).cloned().ok_or(Fault::UndeclaredSlot)?
+                };
+                self.deref_write(ref_val, val)
+            }
+            SlotRef::DerefTmp(idx) => {
+                let ref_val = {
+                    let cf = self.call_stack.last().unwrap();
+                    let f = cf.tmp_frames.last().ok_or(Fault::IndexOutOfBounds)?;
+                    if *idx > 15 { return Err(Fault::IndexOutOfBounds); }
+                    f.slots[*idx as usize].clone().ok_or(Fault::UndeclaredSlot)?
                 };
                 self.deref_write(ref_val, val)
             }
@@ -1225,6 +1269,12 @@ impl Executor {
                 let cf = self.call_stack.last_mut().unwrap();
                 cf.frame.get_mut(*idx).ok_or(Fault::UndeclaredSlot)
             }
+            Operand::Slot(SlotRef::Tmp(idx)) => {
+                let cf = self.call_stack.last_mut().unwrap();
+                let f = cf.tmp_frames.last_mut().ok_or(Fault::IndexOutOfBounds)?;
+                if *idx > 15 { return Err(Fault::IndexOutOfBounds); }
+                f.slots[*idx as usize].as_mut().ok_or(Fault::UndeclaredSlot)
+            }
             Operand::Slot(SlotRef::Global(idx)) => {
                 self.globals.get_mut(*idx as u32).ok_or(Fault::UndeclaredSlot)
             }
@@ -1237,6 +1287,15 @@ impl Executor {
             Operand::Slot(SlotRef::Local(idx)) => {
                 if let Some(cf) = self.call_stack.last_mut() {
                     cf.frame.remove(*idx);
+                }
+            }
+            Operand::Slot(SlotRef::Tmp(idx)) => {
+                if let Some(cf) = self.call_stack.last_mut() {
+                    if let Some(f) = cf.tmp_frames.last_mut() {
+                        if *idx <= 15 {
+                            f.slots[*idx as usize] = None;
+                        }
+                    }
                 }
             }
             Operand::Slot(SlotRef::Global(idx)) => {

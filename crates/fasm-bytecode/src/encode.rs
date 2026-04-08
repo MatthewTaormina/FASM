@@ -37,7 +37,9 @@ const TAG_LOCAL: u8       = 0x00;
 const TAG_GLOBAL: u8      = 0x01;
 const TAG_DEREF_L: u8     = 0x02;
 const TAG_DEREF_G: u8     = 0x03;
-const TAG_BUILTIN: u8     = 0x04;
+const TAG_TMP: u8         = 0x04;
+const TAG_DEREF_TMP: u8   = 0x05;
+const TAG_BUILTIN: u8     = 0x06;
 const TAG_IMM_BOOL: u8    = 0x10;
 const TAG_IMM_I8: u8      = 0x11;
 const TAG_IMM_I16: u8     = 0x12;
@@ -117,8 +119,10 @@ fn encode_operand(op: &Operand, out: &mut Vec<u8>) {
         Operand::Slot(s) => match s {
             SlotRef::Local(i)       => { out.push(TAG_LOCAL);   out.push(*i); }
             SlotRef::Global(i)      => { out.push(TAG_GLOBAL);  out.extend_from_slice(&i.to_le_bytes()); }
+            SlotRef::Tmp(i)         => { out.push(TAG_TMP);     out.push(*i); }
             SlotRef::DerefLocal(i)  => { out.push(TAG_DEREF_L); out.push(*i); }
             SlotRef::DerefGlobal(i) => { out.push(TAG_DEREF_G); out.extend_from_slice(&i.to_le_bytes()); }
+            SlotRef::DerefTmp(i)    => { out.push(TAG_DEREF_TMP); out.push(*i); }
             SlotRef::BuiltIn(b) => {
                 out.push(TAG_BUILTIN);
                 out.push(match b {
@@ -209,8 +213,10 @@ fn decode_operand(c: &mut Cursor) -> Result<Operand, String> {
     match tag {
         TAG_LOCAL    => Ok(Operand::Slot(SlotRef::Local(c.read_u8()?))),
         TAG_GLOBAL   => Ok(Operand::Slot(SlotRef::Global(c.read_u16()?))),
+        TAG_TMP      => Ok(Operand::Slot(SlotRef::Tmp(c.read_u8()?))),
         TAG_DEREF_L  => Ok(Operand::Slot(SlotRef::DerefLocal(c.read_u8()?))),
         TAG_DEREF_G  => Ok(Operand::Slot(SlotRef::DerefGlobal(c.read_u16()?))),
+        TAG_DEREF_TMP=> Ok(Operand::Slot(SlotRef::DerefTmp(c.read_u8()?))),
         TAG_BUILTIN  => Ok(Operand::Slot(SlotRef::BuiltIn(match c.read_u8()? {
             BUILTIN_ARGS       => BuiltIn::Args,
             BUILTIN_RET        => BuiltIn::Ret,

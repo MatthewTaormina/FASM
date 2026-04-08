@@ -185,11 +185,18 @@ fn emit_statement(stmt: &Statement, out: &mut Vec<Instruction>, ctx: &mut FuncCt
     Ok(())
 }
 
-// ── Instruction emission ───────────────────────────────────────────────────
-
 fn emit_instr(instr: &Instr, out: &mut Vec<Instruction>, ctx: &mut FuncCtx) -> Result<(), String> {
     let ln = instr.line;
     let ops = &instr.operands;
+
+    if instr.mnemonic == "TMP_BLOCK" {
+        out.push(Instruction::no_args(Opcode::TmpBlock));
+        return Ok(());
+    }
+    if instr.mnemonic == "END_TMP" {
+        out.push(Instruction::no_args(Opcode::EndTmp));
+        return Ok(());
+    }
 
     macro_rules! op {
         ($n:expr) => {
@@ -652,6 +659,12 @@ fn emit_instr(instr: &Instr, out: &mut Vec<Instruction>, ctx: &mut FuncCtx) -> R
 fn ast_val_to_slot(val: &AstValue, ctx: &FuncCtx) -> Option<SlotRef> {
     match val {
         AstValue::Deref(name) => {
+            // &t0 -> deref tmp
+            if name.starts_with('t') {
+                if let Ok(num) = name[1..].parse::<u8>() {
+                    if num <= 15 { return Some(SlotRef::DerefTmp(num)); }
+                }
+            }
             // &name -> deref local
             if let Some(&idx) = ctx.locals.get(name) {
                 return Some(SlotRef::DerefLocal(idx));
@@ -664,6 +677,15 @@ fn ast_val_to_slot(val: &AstValue, ctx: &FuncCtx) -> Option<SlotRef> {
                 "$ret"         => Some(SlotRef::BuiltIn(BuiltIn::Ret)),
                 "$fault_code"  => Some(SlotRef::BuiltIn(BuiltIn::FaultCode)),
                 "$fault_index" => Some(SlotRef::BuiltIn(BuiltIn::FaultIndex)),
+                n if n.starts_with('t') => {
+                    if let Ok(num) = n[1..].parse::<u8>() {
+                        if num <= 15 { return Some(SlotRef::Tmp(num)); }
+                    }
+                    if let Some(&idx) = ctx.locals.get(name) {
+                        return Some(SlotRef::Local(idx));
+                    }
+                    None
+                }
                 _ => {
                     // Local?
                     if let Some(&idx) = ctx.locals.get(name) {
@@ -702,6 +724,11 @@ fn ast_value_to_operand(
         // String literals compile to VEC<UINT8> at runtime via Immediate::Str
         AstValue::Str(s) => Operand::Imm(Immediate::Str(s.clone())),
         AstValue::Deref(name) => {
+            if name.starts_with('t') {
+                if let Ok(num) = name[1..].parse::<u8>() {
+                    if num <= 15 { return Operand::Slot(SlotRef::DerefTmp(num)); }
+                }
+            }
             if let Some(&idx) = locals.get(name) {
                 Operand::Slot(SlotRef::DerefLocal(idx))
             } else {
@@ -713,6 +740,15 @@ fn ast_value_to_operand(
             "$ret"         => Operand::Slot(SlotRef::BuiltIn(BuiltIn::Ret)),
             "$fault_code"  => Operand::Slot(SlotRef::BuiltIn(BuiltIn::FaultCode)),
             "$fault_index" => Operand::Slot(SlotRef::BuiltIn(BuiltIn::FaultIndex)),
+            n if n.starts_with('t') => {
+                if let Ok(num) = n[1..].parse::<u8>() {
+                    if num <= 15 { return Operand::Slot(SlotRef::Tmp(num)); }
+                }
+                if let Some(&idx) = locals.get(name) {
+                    return Operand::Slot(SlotRef::Local(idx));
+                }
+                Operand::Slot(SlotRef::Local(0))
+            }
             _ => {
                 // Local name?
                 if let Some(&idx) = locals.get(name) {

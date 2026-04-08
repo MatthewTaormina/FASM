@@ -45,7 +45,11 @@ fn validate_function(func: &Function, all_funcs: &HashSet<String>, prog: &Progra
     collect_labels(&func.body, &mut labels)?;
 
     // Validate body
-    validate_statements(&func.body, &mut declared, all_funcs, &labels, &func.name)?;
+    let mut tmp_depth = 0;
+    validate_statements(&func.body, &mut declared, all_funcs, &labels, &func.name, &mut tmp_depth)?;
+    if tmp_depth > 0 {
+        return Err(format!("Function '{}': unclosed TMP_BLOCK", func.name));
+    }
 
     Ok(())
 }
@@ -56,6 +60,11 @@ fn collect_labels(stmts: &[Statement], labels: &mut HashSet<String>) -> Result<(
             Statement::Label(name, line) => {
                 if !labels.insert(name.clone()) {
                     return Err(format!("Line {}: duplicate label '{}'", line, name));
+                }
+            }
+            Statement::Instr(instr) => {
+                if instr.mnemonic == "TMP_BLOCK" || instr.mnemonic == "END_TMP" {
+                    // labels can't be safely jumped across if they span blocks
                 }
             }
             Statement::TryBlock { body, catch_body, .. } => {
@@ -74,6 +83,7 @@ fn validate_statements(
     all_funcs: &HashSet<String>,
     labels: &HashSet<String>,
     func_name: &str,
+    tmp_depth: &mut usize,
 ) -> Result<(), String> {
     for stmt in stmts {
         match stmt {
@@ -82,11 +92,16 @@ fn validate_statements(
             }
             Statement::Label(_name, _line) => {}
             Statement::Instr(instr) => {
-                validate_instr(instr, declared, all_funcs, labels, func_name)?;
+                if instr.mnemonic == "TMP_BLOCK" { *tmp_depth += 1; }
+                validate_instr(instr, declared, all_funcs, labels, func_name, *tmp_depth)?;
+                if instr.mnemonic == "END_TMP" { 
+                    if *tmp_depth == 0 { return Err(format!("Line {}: END_TMP without TMP_BLOCK", instr.line)); }
+                    *tmp_depth -= 1; 
+                }
             }
             Statement::TryBlock { body, catch_body, .. } => {
-                validate_statements(body, declared, all_funcs, labels, func_name)?;
-                validate_statements(catch_body, declared, all_funcs, labels, func_name)?;
+                validate_statements(body, declared, all_funcs, labels, func_name, tmp_depth)?;
+                validate_statements(catch_body, declared, all_funcs, labels, func_name, tmp_depth)?;
             }
         }
     }
@@ -99,9 +114,13 @@ fn validate_instr(
     all_funcs: &HashSet<String>,
     labels: &HashSet<String>,
     func_name: &str,
+    tmp_depth: usize,
 ) -> Result<(), String> {
     match instr.mnemonic.as_str() {
         "JMP" | "JZ" | "JNZ" => {
+            if tmp_depth > 0 {
+                return Err(format!("Line {}: jump instruction not allowed inside TMP_BLOCK (must remain atomic)", instr.line));
+            }
             // last operand should be a label
             if let Some(AstValue::Ident(label)) = instr.operands.last() {
                 if !labels.contains(label.as_str()) {

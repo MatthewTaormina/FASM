@@ -1,0 +1,28 @@
+FUNC Main
+    // Test that TMP_BLOCK works dynamically
+    
+    // We can add intermediate variables
+    TMP_BLOCK
+        MOV 10, t0
+        MOV 20, t1
+        ADD t0, t1, t2
+        SYSCALL 0, t2
+    END_TMP
+    
+    // If we try to access t0 now, it should fail. But actually, t0 resolution
+    // will just fail if tmp_frames is empty.
+    
+    // Let's do nested
+    TMP_BLOCK
+        MOV 100, t0
+        TMP_BLOCK
+            MOV 50, t0
+            SYSCALL 0, t0
+        END_TMP
+        
+        // Should print 100
+        SYSCALL 0, t0
+    END_TMP
+    
+    RET 0
+ENDF
