@@ -15,6 +15,10 @@ path = "src/lib.rs"
 name    = "engine_bench"
 harness = false
 
+[[bench]]
+name    = "realworld_bench"
+harness = false
+
 [dependencies]
 fasm-bytecode  = { path = "../fasm-bytecode" }
 fasm-compiler  = { path = "../fasm-compiler" }

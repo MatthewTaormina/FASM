@@ -1,0 +1,20 @@
+// string_ops.fasm — string allocation and comparison handler
+// Used to benchmark string-heavy workloads in the VM.
+// Returns Int32(1) on success.
+
+FUNC StringOps
+    LOCAL 0, STR,   greeting
+    LOCAL 1, STR,   name
+    LOCAL 2, BOOL,  match
+    LOCAL 3, INT32, result
+
+    STORE "hello", greeting
+    STORE "world", name
+    EQ greeting, greeting, match
+    STORE 1, result
+    RET result
+ENDF
+
+FUNC Main
+    RET
+ENDF

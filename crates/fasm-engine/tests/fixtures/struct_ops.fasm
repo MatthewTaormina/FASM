@@ -1,0 +1,22 @@
+// struct_ops.fasm — struct field set/get workload
+// Exercises the struct allocation, field-set, and field-get paths in the VM.
+// Returns Int32(42) on success.
+
+FUNC StructOps
+    LOCAL 0, STRUCT, s
+    LOCAL 1, INT32,  a
+    LOCAL 2, INT32,  b
+    LOCAL 3, INT32,  sum
+
+    RESERVE 0, STRUCT, NULL
+    SET_FIELD s, 0, 10
+    SET_FIELD s, 1, 32
+    GET_FIELD s, 0, a
+    GET_FIELD s, 1, b
+    ADD a, b, sum
+    RET sum
+ENDF
+
+FUNC Main
+    RET
+ENDF

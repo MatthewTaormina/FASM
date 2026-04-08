@@ -25,3 +25,6 @@ build_out.txt
 .vscode/
 .idea/
 *.swp
+
+# Generated benchmark engine configs (created at runtime by run_benchmarks.sh)
+crates/fasm-engine/tests/fixtures/bench_engine*.toml

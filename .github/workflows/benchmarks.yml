@@ -1,0 +1,154 @@
+name: Performance Benchmarks
+
+on:
+  # Run automatically on main branch pushes (to track regressions)
+  push:
+    branches: [main, master]
+  # Allow manual runs from the Actions UI
+  workflow_dispatch:
+    inputs:
+      quick:
+        description: 'Quick mode (fewer iterations, faster CI)'
+        required: false
+        default: 'false'
+        type: boolean
+  # Weekly scheduled run for trend tracking (every Sunday at 03:00 UTC)
+  schedule:
+    - cron: '0 3 * * 0'
+
+concurrency:
+  group: benchmarks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    name: Real-World Benchmarks
+    # Use a dedicated runner for consistent timing
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-bench-
+            ${{ runner.os }}-cargo-
+
+      - name: Install benchmark tools
+        run: |
+          sudo apt-get install -y apache2-utils jq
+          node --version
+          python3 --version
+
+      - name: Build release binaries
+        run: cargo build --release -p fasm-engine -p fasm-cli
+        env:
+          CARGO_TERM_COLOR: always
+
+      # ── Criterion micro-benchmarks ───────────────────────────────────────────
+      - name: Run Criterion benchmarks (realworld_bench)
+        run: |
+          cargo bench -p fasm-engine --bench realworld_bench -- \
+            --output-format bencher 2>&1 | tee /tmp/criterion_output.txt
+        env:
+          CARGO_TERM_COLOR: always
+        continue-on-error: true   # don't fail CI if a bench is flaky
+
+      - name: Run Criterion benchmarks (engine_bench)
+        run: |
+          cargo bench -p fasm-engine --bench engine_bench -- \
+            --output-format bencher 2>&1 | tee /tmp/engine_bench_output.txt
+        env:
+          CARGO_TERM_COLOR: always
+        continue-on-error: true
+
+      # ── Full benchmark suite with report ────────────────────────────────────
+      - name: Run comprehensive benchmark suite
+        run: |
+          QUICK_FLAG=""
+          if [[ "${{ inputs.quick }}" == "true" ]]; then
+            QUICK_FLAG="--quick"
+          fi
+          bash benchmarks/run_benchmarks.sh $QUICK_FLAG
+        env:
+          CARGO_TERM_COLOR: always
+
+      # ── Upload report artifacts ──────────────────────────────────────────────
+      - name: Upload benchmark report
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-report-${{ github.run_id }}
+          path: |
+            benchmarks/reports/perf-*.md
+            benchmarks/reports/latest_raw.json
+            benchmarks/reports/latest_report.md
+          retention-days: 90
+
+      - name: Upload Criterion HTML reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: criterion-html-${{ github.run_id }}
+          path: target/criterion/
+          retention-days: 30
+
+      # ── Post report summary to job summary ──────────────────────────────────
+      - name: Post benchmark summary
+        if: always()
+        run: |
+          REPORT=$(ls benchmarks/reports/perf-*.md 2>/dev/null | sort | tail -1 || true)
+          if [[ -n "$REPORT" && -f "$REPORT" ]]; then
+            echo "## Performance Report" >> "$GITHUB_STEP_SUMMARY"
+            cat "$REPORT" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No report generated." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # ── KPI gate: fail CI if critical thresholds are breached ───────────────
+      - name: Enforce KPI thresholds
+        run: |
+          RAW="benchmarks/reports/latest_raw.json"
+          if [[ ! -f "$RAW" ]]; then
+            echo "No raw data found; skipping KPI gate."
+            exit 0
+          fi
+
+          FAILURES=0
+
+          # Check: p99 latency at c=8 must be < 500 ms
+          P99=$(jq '.latency_ms.fasm_ping_c8_p99 // 0' "$RAW")
+          if (( P99 > 500 )); then
+            echo "❌ KPI FAIL: p99 latency at c=8 is ${P99} ms (limit: 500 ms)"
+            FAILURES=$((FAILURES + 1))
+          else
+            echo "✅ KPI PASS: p99 latency at c=8 = ${P99} ms"
+          fi
+
+          # Check: throughput at c=8 must be ≥ 100 req/s (very conservative lower bound)
+          RPS=$(jq '.http_throughput_rps.fasm_ping_c8 // 0' "$RAW")
+          RPS_INT=${RPS%.*}
+          if (( RPS_INT < 100 )); then
+            echo "❌ KPI FAIL: throughput at c=8 is ${RPS} req/s (minimum: 100)"
+            FAILURES=$((FAILURES + 1))
+          else
+            echo "✅ KPI PASS: throughput at c=8 = ${RPS} req/s"
+          fi
+
+          if (( FAILURES > 0 )); then
+            echo "$FAILURES KPI threshold(s) breached."
+            exit 1
+          fi
+          echo "All KPI thresholds passed."
