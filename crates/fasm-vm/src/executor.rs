@@ -112,9 +112,9 @@ impl Executor {
     /// invocation.  Called by [`fasm_sandbox::Sandbox::reset`] when a pooled
     /// sandbox is recycled between requests.
     ///
-    /// Global slots are re-initialised by [`run_named`] at the start of every
-    /// invocation (the `Reserve` global-inits loop), so they do not need to
-    /// be cleared here.
+    /// Global slots are re-initialised by [`fasm_sandbox::Sandbox::run_named`]
+    /// at the start of every invocation (the `Reserve` global-inits loop), so
+    /// they do not need to be cleared here.
     pub fn reset_call_stack(&mut self) {
         self.call_stack.clear();
     }
