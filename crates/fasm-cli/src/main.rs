@@ -18,8 +18,9 @@ fn main() {
         "run"     => cmd_run(file, &args[3..]),
         "check"   => cmd_check(file),
         "exec"    => cmd_exec(file, &args[3..]),
+        "bench"   => cmd_bench(file, &args[3..]),
         _ => {
-            eprintln!("Unknown command '{}'. Use compile, run, check, or exec.", command);
+            eprintln!("Unknown command '{}'. Use compile, run, check, exec, or bench.", command);
             print_usage();
             std::process::exit(1);
         }
@@ -98,6 +99,42 @@ fn cmd_exec(file: &str, extra: &[String]) {
         Ok(_) => {}
         Err(e) => { eprintln!("Runtime error: {}", e); std::process::exit(1); }
     }
+}
+
+/// fasm bench <file.fasmc> [iterations] — benchmark VM execution on pre-loaded AST.
+fn cmd_bench(file: &str, extra: &[String]) {
+    let bytes = fs::read(file).unwrap_or_else(|_| {
+        eprintln!("Cannot read file '{}'", file);
+        std::process::exit(1);
+    });
+    let program = match decode_program(&bytes) {
+        Ok(p) => p,
+        Err(e) => { eprintln!("Decode error: {}", e); std::process::exit(1); }
+    };
+
+    let iterations: usize = extra.get(0).and_then(|s| s.parse().ok()).unwrap_or(10_000);
+    println!("Benchmarking '{}' with pre-loaded VM across {} iterations...", file, iterations);
+
+    let start = std::time::Instant::now();
+    for _ in 0..iterations {
+        // We evaluate an entirely fresh Sandbox isolation wrapper per-run,
+        // measuring exactly the cost of a FaaS boundary injection + runtime.
+        let mut sandbox = Sandbox::new(0);
+        
+        // Suppress stdout by hijacking syscall 0/1 to do nothing? 
+        // For a pure execution bench, we let it run as-is. Better point it at non-I/O scripts.
+        if let Err(e) = sandbox.run(&program) {
+            eprintln!("Runtime error during benchmark: {}", e);
+            std::process::exit(1);
+        }
+    }
+    let elapsed = start.elapsed();
+    
+    let total_ms = elapsed.as_secs_f64() * 1000.0;
+    let avg_us = (elapsed.as_micros() as f64) / (iterations as f64);
+    println!("--- Benchmark complete ---");
+    println!("Total time: {:.2} ms", total_ms);
+    println!("Time per execution: {:.2} μs (microseconds)", avg_us);
 }
 
 fn read_file(path: &str) -> String {
