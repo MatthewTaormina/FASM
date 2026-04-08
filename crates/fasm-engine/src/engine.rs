@@ -3,9 +3,10 @@
 use std::{net::SocketAddr, path::PathBuf, sync::Arc};
 use axum::{Router, routing::get};
 use fasm_sandbox::SandboxConfig;
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, sync::RwLock};
 
 use crate::{
+    admin::{AppRegistry, router as admin_router},
     config::EngineConfig,
     dispatcher::TaskDispatcher,
     http_handler::{AppState, handle_request, handle_metrics, handle_queue_info},
@@ -73,18 +74,53 @@ pub async fn run_with_listener(
         sandbox_config,
     );
 
-    // Compile routes.
-    let route_table = Arc::new(
-        RouteTable::from_configs(&config.routes, &config_dir)
-            .map_err(|e| format!("route compilation failed: {}", e))?
-    );
+    // ── RouteTable (dynamic, RwLock-guarded) ─────────────────────────────────
+    let route_table = {
+        let static_routes = RouteTable::from_configs(&config.routes, &config_dir)
+            .map_err(|e| format!("route compilation failed: {}", e))?;
+        Arc::new(RwLock::new(static_routes))
+    };
 
-    // Spawn schedule tasks.
+    // ── AppRegistry — load persisted apps from data_dir ───────────────────────
+    let data_dir = config_dir.join(&config.storage.data_dir);
+    std::fs::create_dir_all(&data_dir)
+        .map_err(|e| format!("cannot create data_dir {:?}: {}", data_dir, e))?;
+
+    let registry = AppRegistry::new(data_dir);
+    let persisted = registry.load_from_disk().await;
+
+    // Re-register persisted managed routes into the live RouteTable.
+    {
+        let mut table = route_table.write().await;
+        for manifest in &persisted {
+            for route_rec in &manifest.routes {
+                let file_path = registry.file_path(&manifest.namespace, &manifest.app, &route_rec.file);
+                match crate::router::compile_source_file(&file_path) {
+                    Ok(prog) => {
+                        let prog = Arc::new(prog);
+                        if let Err(e) = table.add_route_dyn(
+                            &route_rec.method,
+                            &route_rec.path,
+                            route_rec.function.clone(),
+                            prog,
+                        ) {
+                            tracing::warn!("startup: skipping persisted route (conflict): {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("startup: cannot compile persisted route file {:?}: {}", file_path, e);
+                    }
+                }
+            }
+        }
+    }
+
+    // Spawn scheduled tasks.
     for sched in config.schedules.clone() {
         let d   = dispatcher.clone();
         let dir = config_dir.clone();
         match spawn_schedule(sched, &dir, d) {
-            Ok(_) => {}
+            Ok(_)  => {}
             Err(e) => tracing::error!("schedule spawn failed: {}", e),
         }
     }
@@ -96,21 +132,24 @@ pub async fn run_with_listener(
         let qr  = queues.clone();
         let m   = metrics.clone();
         match spawn_queue_looper(qcfg, &dir, &qr, d, m) {
-            Ok(_) => {}
+            Ok(_)  => {}
             Err(e) => tracing::error!("queue looper spawn failed: {}", e),
         }
     }
 
-    // Build axum router / state.
+    // Build axum AppState.
     let app_state = AppState {
-        routes:     route_table,
-        dispatcher: dispatcher.clone(),
-        metrics:    metrics.clone(),
+        routes:      route_table,
+        dispatcher:  dispatcher.clone(),
+        metrics:     metrics.clone(),
+        admin_token: config.storage.admin_token.clone(),
+        registry,
     };
 
     let app = Router::new()
         .route("/metrics",      get(handle_metrics))
         .route("/admin/queues", get(handle_queue_info))
+        .merge(admin_router())
         .fallback(handle_request)
         .with_state(app_state);
 
