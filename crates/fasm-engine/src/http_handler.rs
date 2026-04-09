@@ -44,6 +44,7 @@ use tokio::sync::RwLock;
 use crate::{
     dispatcher::{EngineError, ExecRequest, TaskDispatcher},
     metrics::MetricsRegistry,
+    persistent_handler::{inject_env, PersistentHandlerRegistry},
     router::RouteTable,
 };
 
@@ -59,6 +60,8 @@ pub struct AppState {
     pub admin_token: Option<String>,
     /// Namespace/app/file registry for the management API.
     pub registry: crate::admin::AppRegistry,
+    /// Persistent warm-sandbox handlers (may be empty).
+    pub persistent_handlers: PersistentHandlerRegistry,
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
@@ -146,11 +149,31 @@ pub async fn handle_request(
         args_struct.insert(field_idx, body_val);
     }
 
-    // Build ExecRequest
+    let mut args = Value::Struct(args_struct);
+
+    // Inject config-defined env bindings at KEY_ENV (if any).
+    inject_env(&mut args, &matched.env_bindings);
+
+    // If a persistent handler is registered for this function, use it.
+    if let Some(ph) = state.persistent_handlers.get(&matched.func) {
+        return match ph.dispatch(args).await {
+            Ok(ret_val) => (StatusCode::OK, Json(value_to_json(&ret_val))).into_response(),
+            Err(EngineError::Overloaded) => {
+                (StatusCode::SERVICE_UNAVAILABLE, "engine overloaded").into_response()
+            }
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{:?}", e),
+            )
+                .into_response(),
+        };
+    }
+
+    // Build ExecRequest for the task dispatcher.
     let exec_req = ExecRequest {
         func: matched.func.clone(),
         program: matched.program.clone(),
-        args: Value::Struct(args_struct),
+        args,
         trigger: "http".to_string(),
         jit: matched.jit.clone(),
     };

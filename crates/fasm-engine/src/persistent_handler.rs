@@ -5,47 +5,95 @@
 //! eliminates the per-request sandbox spawn overhead (~35 µs dispatcher tax)
 //! and enables sub-5 µs numeric hot-path latency when combined with JIT.
 //!
-//! ## State passing
+//! ## Stateless calls
 //!
-//! After each successful invocation the handler's `$ret` value is captured.  If
-//! it is a `STRUCT`, it is injected into the *next* invocation's `$args` at the
-//! well-known field key [`KEY_STATE`].  FASM programs can read back their own
-//! previous return value with:
+//! Each invocation is **fully independent** — the sandbox call stack is reset
+//! between requests and no data leaks from one call to the next.  The
+//! "persistent" aspect refers only to the warm sandbox (JIT compiled, syscall
+//! table pre-mounted), not to any shared mutable state.
+//!
+//! ## Environment variable injection
+//!
+//! If [`EnvVarBinding`]s are configured for a handler, the engine reads the
+//! corresponding OS environment variables once per invocation and injects them
+//! as a `STRUCT` at the well-known field key [`KEY_ENV`] in `$args`.
 //!
 //! ```text
 //! FUNC Handler
-//!     LOCAL 0, STRUCT, state
-//!     GET_FIELD $args, KEY_STATE, state
-//!     // … process request, update state …
-//!     RET state       // captured and forwarded to the next iteration
+//!     LOCAL 0, STRUCT, env
+//!     LOCAL 1, VEC,    db_url
+//!     GET_FIELD $args, KEY_ENV, env
+//!     GET_FIELD env, 0, db_url    // env var bound to key 0
+//!     // … use db_url …
+//!     RET
 //! ENDF
 //! ```
 //!
-//! ## Fault recovery
+//! Config (`engine.toml`):
+//! ```toml
+//! [[handlers]]
+//! name     = "worker"
+//! source   = "worker.fasm"
+//! function = "Handler"
 //!
-//! If an invocation faults (returns an `Err`), the engine logs the fault code,
-//! discards any in-flight state mutation, and restarts the handler with the last
-//! known-good state.  The external caller receives an `Err(fault_message)`.
+//! [[handlers.env_bindings]]
+//! key = 0
+//! var = "DATABASE_URL"
+//! ```
 
 use fasm_bytecode::Program;
 use fasm_jit::FasmJit;
 use fasm_sandbox::{Sandbox, SandboxConfig};
-use fasm_vm::{value::FasmStruct, Value};
+use fasm_vm::{
+    value::{FasmStruct, FasmVec},
+    Value,
+};
 use std::sync::Arc;
 use tokio::sync::oneshot;
 
-use crate::{dispatcher::EngineError, metrics::MetricsRegistry};
+use crate::{
+    config::EnvVarBinding,
+    dispatcher::EngineError,
+    metrics::MetricsRegistry,
+};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-/// Field key used to inject the previous iteration's `$ret` STRUCT into
-/// the current iteration's `$args`.
+/// Field key in `$args` at which environment variable bindings are injected.
 ///
-/// Programs read accumulated state with:
+/// The value at this key is a `STRUCT { binding.key → VEC<UINT8> }`.
+/// If a bound variable is not set in the OS environment the field is `NULL`.
+///
 /// ```text
-/// GET_FIELD $args, KEY_STATE, my_state
+/// GET_FIELD $args, KEY_ENV, env
+/// GET_FIELD env, 0, db_url   // reads the var bound to key 0
 /// ```
-pub const KEY_STATE: u32 = 0x7FFF_FFFE;
+pub const KEY_ENV: u32 = 0x7FFF_FFFD;
+
+// ── Internal helpers ──────────────────────────────────────────────────────────
+
+/// Build the env sub-struct from a list of config-defined bindings.
+/// Returns `None` if `bindings` is empty (no field is injected).
+pub(crate) fn build_env_value(bindings: &[EnvVarBinding]) -> Option<Value> {
+    if bindings.is_empty() {
+        return None;
+    }
+    let mut env = FasmStruct::default();
+    for b in bindings {
+        let val = Value::Vec(FasmVec(b.value.bytes().map(Value::Uint8).collect()));
+        env.insert(b.key, val);
+    }
+    Some(Value::Struct(env))
+}
+
+/// Inject env var bindings into an existing args struct at [`KEY_ENV`].
+pub(crate) fn inject_env(args: &mut Value, bindings: &[EnvVarBinding]) {
+    if let Some(env_val) = build_env_value(bindings) {
+        if let Value::Struct(ref mut s) = args {
+            s.insert(KEY_ENV, env_val);
+        }
+    }
+}
 
 // ── Request / Response ────────────────────────────────────────────────────────
 
@@ -56,8 +104,11 @@ struct HandlerRequest {
 
 // ── PersistentHandler ─────────────────────────────────────────────────────────
 
-/// A long-lived, single-threaded FASM handler that maintains a warm sandbox
-/// and accumulates state across invocations.
+/// A long-lived, single-threaded FASM handler that keeps a warm sandbox.
+///
+/// Each call is **stateless** — the sandbox call stack is reset between
+/// requests.  Env var bindings (if any) are re-read from the OS environment
+/// on every invocation so that runtime changes are picked up automatically.
 pub struct PersistentHandler {
     tx: std::sync::mpsc::SyncSender<HandlerRequest>,
     /// Kept alive so the thread is joined on drop.
@@ -66,12 +117,16 @@ pub struct PersistentHandler {
 
 impl PersistentHandler {
     /// Spawn the handler thread and return a handle.
+    ///
+    /// `env_bindings` is captured by the thread and used to inject OS env vars
+    /// into `$args` at [`KEY_ENV`] before each invocation.
     pub fn spawn(
         program: Arc<Program>,
         func: String,
         sandbox_config: Arc<SandboxConfig>,
         metrics: MetricsRegistry,
         jit: Option<Arc<FasmJit>>,
+        env_bindings: Vec<EnvVarBinding>,
     ) -> Self {
         // Bounded channel — if the caller is faster than the handler it will
         // see an `Overloaded` error rather than growing memory unboundedly.
@@ -87,37 +142,23 @@ impl PersistentHandler {
             // Mount engine metrics syscalls (same set as the task dispatcher).
             crate::dispatcher::mount_sandbox_syscalls(&mut sb, &metrics);
 
-            // Last known-good state: starts as an empty STRUCT.
-            let mut last_good_state: Value = Value::Struct(FasmStruct::default());
-
             while let Ok(req) = rx.recv() {
                 let HandlerRequest { mut args, response_tx } = req;
 
-                // Inject state into args at KEY_STATE.
-                if let Value::Struct(ref mut s) = args {
-                    if let Value::Struct(_) = &last_good_state {
-                        s.insert(KEY_STATE, last_good_state.clone());
-                    }
-                }
+                // Inject env vars — read fresh from OS environment each call.
+                inject_env(&mut args, &env_bindings);
 
+                // Reset call stack so each invocation starts with a clean frame.
                 sb.reset();
+
                 let result = sb.run_named(&program, &func, args);
 
                 match result {
                     Ok(ret) => {
-                        // Capture new state if the return value is a STRUCT.
-                        if let Value::Struct(_) = &ret {
-                            last_good_state = ret.clone();
-                        }
                         let _ = response_tx.send(Ok(ret));
                     }
                     Err(fault) => {
-                        tracing::error!(
-                            func = %func,
-                            fault = %fault,
-                            "persistent handler fault — reverting to last known-good state"
-                        );
-                        // Do NOT update last_good_state — keep the previous one.
+                        tracing::error!(func = %func, fault = %fault, "persistent handler fault");
                         let _ = response_tx.send(Err(fault));
                     }
                 }

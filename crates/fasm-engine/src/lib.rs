@@ -9,6 +9,7 @@ pub mod dispatcher;
 pub mod engine;
 pub mod http_handler;
 pub mod metrics;
+pub mod persistent_handler;
 pub mod pubsub;
 pub mod queue_looper;
 pub mod queues;

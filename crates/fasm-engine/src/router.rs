@@ -10,7 +10,7 @@ use fasm_jit::FasmJit;
 use std::{collections::HashMap, path::Path, sync::Arc};
 use uuid::Uuid;
 
-use crate::config::RouteConfig;
+use crate::config::{EnvVarBinding, RouteConfig};
 
 // ── Route entry ────────────────────────────────────────────────────────────────
 
@@ -24,6 +24,8 @@ pub struct RouteEntry {
     pub program: Arc<Program>,
     /// Pre-compiled JIT cache for this program.  `None` if no eligible functions.
     pub jit: Option<Arc<FasmJit>>,
+    /// Config-defined values injected into `$args` at `KEY_ENV`.
+    pub env_bindings: Vec<EnvVarBinding>,
     /// `true` = registered via the management API (can be hot-removed).
     /// `false` = loaded from static config (treated as immutable at runtime).
     pub managed: bool,
@@ -49,6 +51,8 @@ pub struct MatchedRoute {
     pub jit: Option<Arc<FasmJit>>,
     /// Extracted path parameters: param name → value.
     pub params: HashMap<String, String>,
+    /// Config-defined values to inject into `$args` at `KEY_ENV`.
+    pub env_bindings: Vec<EnvVarBinding>,
 }
 
 impl RouteTable {
@@ -69,6 +73,7 @@ impl RouteTable {
                 &cfg.path,
                 cfg.function.clone(),
                 Arc::new(program),
+                cfg.env_bindings.clone(),
                 false, // static route
             );
         }
@@ -81,6 +86,7 @@ impl RouteTable {
         path: &str,
         func: String,
         program: Arc<Program>,
+        env_bindings: Vec<EnvVarBinding>,
         managed: bool,
     ) -> Uuid {
         let id = Uuid::new_v4();
@@ -93,6 +99,7 @@ impl RouteTable {
             func,
             program,
             jit,
+            env_bindings,
             managed,
         });
         id
@@ -101,6 +108,7 @@ impl RouteTable {
     /// Register a new route at runtime (management API).
     ///
     /// Returns `Err` if the `(method, path)` combination is already occupied.
+    /// Dynamic routes have no env bindings (use static config for that).
     pub fn add_route_dyn(
         &mut self,
         method: &str,
@@ -130,6 +138,7 @@ impl RouteTable {
             func,
             program,
             jit,
+            env_bindings: vec![],
             managed: true,
         });
         Ok(id)
@@ -181,6 +190,7 @@ impl RouteTable {
                     program: route.program.clone(),
                     jit: route.jit.clone(),
                     params,
+                    env_bindings: route.env_bindings.clone(),
                 });
             }
         }
@@ -273,6 +283,7 @@ mod tests {
                 path,
                 func.to_string(),
                 program.clone(),
+                vec![],
                 false,
             );
         }
@@ -393,7 +404,7 @@ mod tests {
         let src = "FUNC Main\n    RET\nENDF\n";
         let program = Arc::new(compile_source(src).unwrap());
         let mut table = RouteTable::new();
-        let id = table.add("GET".into(), "/static", "S".into(), program, false);
+        let id = table.add("GET".into(), "/static", "S".into(), program, vec![], false);
         assert!(
             !table.remove_route(id),
             "static routes must not be removable via remove_route"
