@@ -40,6 +40,7 @@ flate2         = "1"
 base64         = "0.22"
 
 [dev-dependencies]
+fasm-jit   = { path = "../fasm-jit" }
 reqwest    = { version = "0.12", features = ["json", "blocking"] }
 criterion  = { version = "0.5", features = ["async_tokio"] }
 sysinfo    = "0.33"
