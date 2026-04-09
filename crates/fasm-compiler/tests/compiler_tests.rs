@@ -315,18 +315,21 @@ ENDF
 }
 
 #[test]
-fn test_compile_global_reserve() {
-    // Top-level RESERVE declares global variables (not the GLOBAL keyword)
+fn test_compile_global_reserve_is_scope_error() {
+    // Top-level RESERVE is no longer allowed; it is a ScopeError.
     let src = "
 RESERVE 0, INT32, 0
-RESERVE 1, BOOL, FALSE
 
 FUNC Main
     RET
 ENDF
 ";
-    let prog = compile_source(src).expect("compile must succeed");
-    assert_eq!(prog.global_inits.len(), 2);
+    let err = compile_source(src).unwrap_err();
+    assert!(
+        err.contains("ScopeError") || err.contains("top level"),
+        "expected ScopeError, got: {}",
+        err
+    );
 }
 
 #[test]

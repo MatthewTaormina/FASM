@@ -23,17 +23,6 @@ pub fn emit(prog: ProgramAst) -> Result<Program, String> {
         defines.insert(d.name.clone(), d.value.clone());
     }
 
-    // Global reserves
-    for gr in &prog.global_reserves {
-        let t = gr.fasm_type;
-        let init_op =
-            ast_value_to_operand(&gr.init, &defines, &HashMap::new(), &HashMap::new(), &[]);
-        out.global_inits.push(Instruction {
-            opcode: Opcode::Reserve,
-            operands: vec![Operand::Key(gr.index), Operand::Type(t), init_op],
-        });
-    }
-
     // Functions
     let func_index_map: HashMap<String, u16> = prog
         .functions

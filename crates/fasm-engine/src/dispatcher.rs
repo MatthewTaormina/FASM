@@ -263,7 +263,7 @@ fn mount_engine_syscalls(sb: &mut Sandbox, metrics: &MetricsRegistry) {
     // 20 = METRICS_INC: struct {0: key_str, 1: delta_int}
     sb.mount_syscall(
         20,
-        Box::new(move |args, _globals| {
+        Box::new(move |args| {
             if let fasm_vm::Value::Struct(s) = &args {
                 let key = s
                     .get(&0u32)
@@ -309,7 +309,7 @@ fn mount_engine_syscalls(sb: &mut Sandbox, metrics: &MetricsRegistry) {
     // 21 = METRICS_SET
     sb.mount_syscall(
         21,
-        Box::new(move |args, _globals| {
+        Box::new(move |args| {
             if let fasm_vm::Value::Struct(s) = &args {
                 let key = s
                     .get(&0u32)
@@ -355,7 +355,7 @@ fn mount_engine_syscalls(sb: &mut Sandbox, metrics: &MetricsRegistry) {
     // 22 = METRICS_GET
     sb.mount_syscall(
         22,
-        Box::new(move |args, _globals| {
+        Box::new(move |args| {
             let key = if let fasm_vm::Value::Vec(ref vec) = args {
                 String::from_utf8_lossy(
                     &vec.0

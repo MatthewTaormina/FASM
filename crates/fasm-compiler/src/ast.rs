@@ -1,11 +1,9 @@
 use fasm_bytecode::types::FasmType;
-
 /// Top-level program AST.
 #[derive(Debug, Default)]
 pub struct ProgramAst {
     pub defines: Vec<Define>,
     pub imports: Vec<Import>,
-    pub global_reserves: Vec<GlobalReserve>,
     pub functions: Vec<Function>,
 }
 
@@ -20,14 +18,6 @@ pub struct Define {
 pub struct Import {
     pub path: String,
     pub alias: String,
-    pub line: usize,
-}
-
-#[derive(Debug, Clone)]
-pub struct GlobalReserve {
-    pub index: u32,
-    pub fasm_type: FasmType,
-    pub init: AstValue,
     pub line: usize,
 }
 
