@@ -22,8 +22,6 @@ pub struct FunctionDef {
 pub struct Program {
     /// Version byte, should be 0x01 for this implementation.
     pub version: u8,
-    /// Global RESERVE instructions run before Main.
-    pub global_inits: Vec<Instruction>,
     /// All function definitions including Main.
     pub functions: Vec<FunctionDef>,
 }
@@ -32,7 +30,6 @@ impl Program {
     pub fn new() -> Self {
         Self {
             version: 0x01,
-            global_inits: vec![],
             functions: vec![],
         }
     }
@@ -73,7 +70,6 @@ mod tests {
     fn test_new_program_defaults() {
         let prog = Program::new();
         assert_eq!(prog.version, 0x01);
-        assert!(prog.global_inits.is_empty());
         assert!(prog.functions.is_empty());
     }
 

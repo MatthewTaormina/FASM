@@ -89,11 +89,7 @@ fn cmd_check(file: &str) {
     let source = read_file(file);
     match compile_source(&source) {
         Ok(prog) => {
-            println!(
-                "OK — {} function(s), {} global init(s)",
-                prog.functions.len(),
-                prog.global_inits.len()
-            );
+            println!("OK — {} function(s)", prog.functions.len());
         }
         Err(e) => {
             eprintln!("Validation error: {}", e);
@@ -158,8 +154,8 @@ fn cmd_bench(file: &str, extra: &[String]) {
         // measuring exactly the cost of a FaaS boundary injection + runtime.
         let mut sandbox = Sandbox::new(0);
         // Suppress PRINT/PRINT_VEC syscalls — we only want to measure VM execution cost.
-        sandbox.mount_syscall(0, Box::new(|_, _| Ok(fasm_vm::Value::Null)));
-        sandbox.mount_syscall(1, Box::new(|_, _| Ok(fasm_vm::Value::Null)));
+        sandbox.mount_syscall(0, Box::new(|_| Ok(fasm_vm::Value::Null)));
+        sandbox.mount_syscall(1, Box::new(|_| Ok(fasm_vm::Value::Null)));
         if let Err(e) = sandbox.run(&program) {
             eprintln!("Runtime error during benchmark: {}", e);
             std::process::exit(1);

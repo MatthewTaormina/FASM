@@ -11,6 +11,7 @@ use crate::{
     dispatcher::TaskDispatcher,
     http_handler::{handle_metrics, handle_queue_info, handle_request, AppState},
     metrics::MetricsRegistry,
+    persistent_handler::{PersistentHandler, PersistentHandlerRegistry},
     queue_looper::spawn_queue_looper,
     queues::QueueRegistry,
     router::RouteTable,
@@ -80,7 +81,7 @@ pub async fn run_with_listener(
     let dispatcher = TaskDispatcher::new_with_config(
         config.engine.max_concurrent,
         metrics.clone(),
-        sandbox_config,
+        sandbox_config.clone(),
     );
 
     // ── RouteTable (dynamic, RwLock-guarded) ─────────────────────────────────
@@ -151,6 +152,34 @@ pub async fn run_with_listener(
         }
     }
 
+    // Spawn persistent handlers.
+    let persistent_handlers = {
+        let mut map = std::collections::HashMap::new();
+        for hcfg in &config.handlers {
+            let source_path = config_dir.join(&hcfg.source);
+            match crate::router::compile_source_file(&source_path) {
+                Ok(program) => {
+                    let program = std::sync::Arc::new(program);
+                    let jit = fasm_jit::FasmJit::compile(&program).map(std::sync::Arc::new);
+                    let ph = PersistentHandler::spawn(
+                        program,
+                        hcfg.function.clone(),
+                        sandbox_config.clone(),
+                        metrics.clone(),
+                        jit,
+                        hcfg.env_bindings.clone(),
+                    );
+                    map.insert(hcfg.name.clone(), std::sync::Arc::new(ph));
+                    tracing::info!(name = %hcfg.name, "persistent handler started");
+                }
+                Err(e) => {
+                    tracing::error!(name = %hcfg.name, error = %e, "failed to compile persistent handler");
+                }
+            }
+        }
+        PersistentHandlerRegistry::new(map)
+    };
+
     // Build axum AppState.
     let app_state = AppState {
         routes: route_table,
@@ -158,6 +187,7 @@ pub async fn run_with_listener(
         metrics: metrics.clone(),
         admin_token: config.storage.admin_token.clone(),
         registry,
+        persistent_handlers,
     };
 
     let app = Router::new()

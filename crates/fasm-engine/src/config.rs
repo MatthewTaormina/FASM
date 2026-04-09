@@ -29,6 +29,10 @@ pub struct EngineConfig {
 
     #[serde(default)]
     pub events: Vec<EventConfig>,
+
+    /// Persistent warm-sandbox handlers that serve requests from a dedicated thread.
+    #[serde(default)]
+    pub handlers: Vec<HandlerConfig>,
 }
 
 // ── Subsections ───────────────────────────────────────────────────────────────
@@ -114,6 +118,25 @@ impl Default for EngineSettings {
 
 // ── Route ─────────────────────────────────────────────────────────────────────
 
+/// A binding that injects a config-defined value into a function's `$args`
+/// at a well-known field key under [`crate::persistent_handler::KEY_ENV`].
+///
+/// Values are taken from the application config (`engine.toml`), not from
+/// the OS environment.
+///
+/// ```toml
+/// [[routes.env_bindings]]
+/// key   = 0
+/// value = "postgres://localhost/mydb"
+/// ```
+#[derive(Debug, Clone, Deserialize)]
+pub struct EnvVarBinding {
+    /// Field key inside the env `STRUCT` at which `value` is stored.
+    pub key: u32,
+    /// String value to inject (UTF-8, stored as `VEC<UINT8>` in FASM).
+    pub value: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct RouteConfig {
     /// HTTP method, e.g. `"GET"`, `"POST"`.
@@ -124,6 +147,39 @@ pub struct RouteConfig {
     pub function: String,
     /// Path to `.fasm` source or `.fasmc` compiled bytecode.
     pub source: String,
+    /// Config-defined values injected into `$args` at `KEY_ENV`.
+    #[serde(default)]
+    pub env_bindings: Vec<EnvVarBinding>,
+}
+
+// ── Persistent handler ────────────────────────────────────────────────────────
+
+/// A persistent warm-sandbox handler that serves requests from a dedicated
+/// thread.  The sandbox is created once at startup; subsequent calls skip
+/// spawn/setup overhead entirely.
+///
+/// ```toml
+/// [[handlers]]
+/// name     = "worker"
+/// source   = "worker.fasm"
+/// function = "Handler"
+///
+/// [[handlers.env_bindings]]
+/// key   = 0
+/// value = "postgres://localhost/mydb"
+/// ```
+#[derive(Debug, Clone, Deserialize)]
+pub struct HandlerConfig {
+    /// Name used to route HTTP requests to this handler.
+    /// A `GET /handlers/<name>` route is registered automatically.
+    pub name: String,
+    /// Path to `.fasm` source file, relative to the config directory.
+    pub source: String,
+    /// FASM function to call on each request.
+    pub function: String,
+    /// Config-defined values injected into `$args` at `KEY_ENV`.
+    #[serde(default)]
+    pub env_bindings: Vec<EnvVarBinding>,
 }
 
 // ── Schedule ──────────────────────────────────────────────────────────────────

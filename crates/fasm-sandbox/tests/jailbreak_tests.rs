@@ -35,7 +35,6 @@ use fasm_vm::Value;
 fn make_program(instructions: Vec<Instruction>) -> Program {
     Program {
         version: 0x01,
-        global_inits: vec![],
         functions: vec![FunctionDef {
             name: "Main".to_string(),
             params: vec![],
@@ -122,7 +121,6 @@ fn test_infinite_recursion_hits_stack_limit() {
     };
     let prog = Program {
         version: 0x01,
-        global_inits: vec![],
         functions: vec![main_fn, recur_fn],
     };
 
@@ -208,7 +206,7 @@ fn test_division_by_zero_is_contained() {
 fn test_erroring_syscall_handler_is_contained() {
     let prog = syscall_program(200);
     let mut sandbox = Sandbox::new(0);
-    sandbox.mount_syscall(200, Box::new(|_, _| Err(fasm_vm::Fault::BadSyscall)));
+    sandbox.mount_syscall(200, Box::new(|_| Err(fasm_vm::Fault::BadSyscall)));
     let result = sandbox.run(&prog);
     assert!(
         result.is_err(),
@@ -243,7 +241,7 @@ mod seccomp_tests {
             );
             sb.mount_syscall(
                 100,
-                Box::new(|_, _| {
+                Box::new(|_| {
                     let ret = unsafe { libc::fork() };
                     if ret == -1 {
                         let errno = unsafe { *libc::__errno_location() };
@@ -290,7 +288,7 @@ mod seccomp_tests {
             );
             sb.mount_syscall(
                 101,
-                Box::new(|_, _| {
+                Box::new(|_| {
                     let fd = unsafe { libc::socket(libc::AF_INET, libc::SOCK_STREAM, 0) };
                     if fd == -1 {
                         return Err(fasm_vm::Fault::BadSyscall);
@@ -326,7 +324,7 @@ mod seccomp_tests {
             );
             sb.mount_syscall(
                 102,
-                Box::new(|_, _| {
+                Box::new(|_| {
                     use std::ffi::CString;
                     let path = CString::new("/bin/true").unwrap();
                     let argv = [path.as_ptr(), std::ptr::null()];
@@ -367,7 +365,7 @@ mod seccomp_tests {
                     ..Default::default()
                 },
             );
-            sb.mount_syscall(103, Box::new(|_, _| Ok(Value::Int32(42))));
+            sb.mount_syscall(103, Box::new(|_| Ok(Value::Int32(42))));
             sb.run(&prog)
         })
         .join()
@@ -429,7 +427,7 @@ mod landlock_tests {
             );
             sb.mount_syscall(
                 110,
-                Box::new(|_, _| {
+                Box::new(|_| {
                     use std::ffi::CString;
                     // /etc/hostname is outside the allowed tmp directory.
                     let path = CString::new("/etc/hostname").unwrap();
@@ -483,7 +481,7 @@ mod landlock_tests {
             let path_clone = path.clone();
             sb.mount_syscall(
                 111,
-                Box::new(move |_, _| {
+                Box::new(move |_| {
                     let content = std::fs::read_to_string(&path_clone)
                         .map_err(|_| fasm_vm::Fault::BadSyscall)?;
                     if content.contains("hello") {

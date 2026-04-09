@@ -254,6 +254,15 @@ fn release_sandbox(sb: Sandbox) {
     });
 }
 
+/// Mount the engine-reserved syscalls (IDs 10–49) into a sandbox.
+///
+/// These syscalls are injected by fasm-engine; fasm-vm has no knowledge of them.
+/// Public so that [`crate::persistent_handler::PersistentHandler`] can reuse
+/// the same syscall set without duplicating the registration logic.
+pub fn mount_sandbox_syscalls(sb: &mut Sandbox, metrics: &MetricsRegistry) {
+    mount_engine_syscalls(sb, metrics);
+}
+
 /// Mount the engine-reserved syscalls (IDs 10–49) into a fresh sandbox.
 ///
 /// These syscalls are injected by fasm-engine; fasm-vm has no knowledge of them.
@@ -263,7 +272,7 @@ fn mount_engine_syscalls(sb: &mut Sandbox, metrics: &MetricsRegistry) {
     // 20 = METRICS_INC: struct {0: key_str, 1: delta_int}
     sb.mount_syscall(
         20,
-        Box::new(move |args, _globals| {
+        Box::new(move |args| {
             if let fasm_vm::Value::Struct(s) = &args {
                 let key = s
                     .get(&0u32)
@@ -309,7 +318,7 @@ fn mount_engine_syscalls(sb: &mut Sandbox, metrics: &MetricsRegistry) {
     // 21 = METRICS_SET
     sb.mount_syscall(
         21,
-        Box::new(move |args, _globals| {
+        Box::new(move |args| {
             if let fasm_vm::Value::Struct(s) = &args {
                 let key = s
                     .get(&0u32)
@@ -355,7 +364,7 @@ fn mount_engine_syscalls(sb: &mut Sandbox, metrics: &MetricsRegistry) {
     // 22 = METRICS_GET
     sb.mount_syscall(
         22,
-        Box::new(move |args, _globals| {
+        Box::new(move |args| {
             let key = if let fasm_vm::Value::Vec(ref vec) = args {
                 String::from_utf8_lossy(
                     &vec.0

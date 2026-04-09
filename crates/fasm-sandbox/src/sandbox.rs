@@ -122,7 +122,7 @@ impl Sandbox {
             let plg = locked.clone();
             self.mount_syscall(
                 id,
-                Box::new(move |val, _| {
+                Box::new(move |val| {
                     let mut p = plg.lock().unwrap();
                     p.call(id, &val)
                 }),

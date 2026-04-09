@@ -13,7 +13,7 @@
 //!
 //! let mut sandbox = Sandbox::new(/* id= */ 0);
 //! sandbox.set_clock_hz(10_000); // limit to 10 000 instructions/tick (0 = unlimited)
-//! sandbox.mount_syscall(100, Box::new(|args, _globals| Ok(Value::Null)));
+//! sandbox.mount_syscall(100, Box::new(|args| Ok(Value::Null)));
 //!
 //! let result = sandbox.run(&program)?;
 //! ```

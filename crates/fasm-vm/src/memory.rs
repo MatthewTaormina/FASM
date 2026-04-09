@@ -56,48 +56,6 @@ impl TmpFrame {
     }
 }
 
-/// Global register — unlimited slots indexed by u32.
-#[derive(Debug, Clone, Default)]
-pub struct GlobalRegister {
-    slots: Vec<Option<Value>>,
-}
-
-impl GlobalRegister {
-    pub fn new() -> Self {
-        Self { slots: Vec::new() }
-    }
-
-    pub fn set(&mut self, index: u32, value: Value) {
-        let idx = index as usize;
-        if idx >= self.slots.len() {
-            self.slots.resize(idx + 1, None);
-        }
-        self.slots[idx] = Some(value);
-    }
-
-    pub fn get(&self, index: u32) -> Option<&Value> {
-        self.slots.get(index as usize)?.as_ref()
-    }
-
-    pub fn get_mut(&mut self, index: u32) -> Option<&mut Value> {
-        self.slots.get_mut(index as usize)?.as_mut()
-    }
-
-    pub fn remove(&mut self, index: u32) {
-        if let Some(slot) = self.slots.get_mut(index as usize) {
-            *slot = None;
-        }
-    }
-
-    pub fn snapshot(&self) -> Vec<Option<Value>> {
-        self.slots.clone()
-    }
-
-    pub fn restore(&mut self, snap: Vec<Option<Value>>) {
-        self.slots = snap;
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,47 +125,6 @@ mod tests {
             *n = 55;
         }
         assert_eq!(frame.get(3), Some(&Value::Int32(55)));
-    }
-
-    // ── GlobalRegister tests ──────────────────────────────────────────────────
-
-    #[test]
-    fn test_global_set_and_get() {
-        let mut reg = GlobalRegister::new();
-        reg.set(0, Value::Uint64(1_000_000));
-        reg.set(1000, Value::Bool(true));
-        assert_eq!(reg.get(0), Some(&Value::Uint64(1_000_000)));
-        assert_eq!(reg.get(1000), Some(&Value::Bool(true)));
-        assert_eq!(reg.get(500), None);
-    }
-
-    #[test]
-    fn test_global_remove() {
-        let mut reg = GlobalRegister::new();
-        reg.set(5, Value::Int8(-1));
-        reg.remove(5);
-        assert_eq!(reg.get(5), None);
-    }
-
-    #[test]
-    fn test_global_snapshot_and_restore() {
-        let mut reg = GlobalRegister::new();
-        reg.set(0, Value::Int32(1));
-        let snap = reg.snapshot();
-
-        reg.set(0, Value::Int32(999));
-        reg.restore(snap);
-        assert_eq!(reg.get(0), Some(&Value::Int32(1)));
-    }
-
-    #[test]
-    fn test_global_get_mut() {
-        let mut reg = GlobalRegister::new();
-        reg.set(2, Value::Uint32(0));
-        if let Some(Value::Uint32(n)) = reg.get_mut(2) {
-            *n = 42;
-        }
-        assert_eq!(reg.get(2), Some(&Value::Uint32(42)));
     }
 
     // ── TmpFrame tests ────────────────────────────────────────────────────────

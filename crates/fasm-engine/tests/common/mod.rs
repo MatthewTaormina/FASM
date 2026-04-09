@@ -59,6 +59,7 @@ impl TestEngine {
             schedules: vec![],
             queues: vec![],
             events: vec![],
+            handlers: vec![],
         };
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -107,18 +108,21 @@ impl TestEngine {
                 path: "/ping".into(),
                 function: "Ping".into(),
                 source: "ping.fasm".into(),
+                env_bindings: vec![],
             },
             RouteConfig {
                 method: "GET".into(),
                 path: "/echo/:word".into(),
                 function: "Echo".into(),
                 source: "echo.fasm".into(),
+                env_bindings: vec![],
             },
             RouteConfig {
                 method: "GET".into(),
                 path: "/fib".into(),
                 function: "FibHandler".into(),
                 source: "fib_handler.fasm".into(),
+                env_bindings: vec![],
             },
         ];
         Self::start(routes, fixtures_dir, max_concurrent).await

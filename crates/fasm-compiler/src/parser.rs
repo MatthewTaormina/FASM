@@ -94,19 +94,11 @@ impl Parser {
                     });
                 }
                 "RESERVE" => {
-                    let ln = self.line();
-                    self.advance();
-                    let idx = self.parse_u32()?;
-                    self.expect_comma()?;
-                    let t = self.parse_type()?;
-                    self.expect_comma()?;
-                    let init = self.parse_value()?;
-                    prog.global_reserves.push(GlobalReserve {
-                        index: idx,
-                        fasm_type: t,
-                        init,
-                        line: ln,
-                    });
+                    return Err(format!(
+                        "Line {}: RESERVE is not allowed at the top level; \
+                         use RESERVE inside a FUNC block (ScopeError)",
+                        self.line()
+                    ));
                 }
                 "FUNC" => {
                     let f = self.parse_function()?;

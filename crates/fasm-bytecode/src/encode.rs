@@ -74,12 +74,6 @@ pub fn encode_program(prog: &Program) -> Vec<u8> {
     out.extend_from_slice(MAGIC);
     out.push(prog.version);
 
-    // global inits
-    out.extend_from_slice(&(prog.global_inits.len() as u32).to_le_bytes());
-    for instr in &prog.global_inits {
-        encode_instruction(instr, &mut out);
-    }
-
     // functions
     out.extend_from_slice(&(prog.functions.len() as u32).to_le_bytes());
     for func in &prog.functions {
@@ -241,11 +235,6 @@ pub fn decode_program(data: &[u8]) -> Result<Program, String> {
     let version = c.read_u8()?;
     let mut prog = Program::new();
     prog.version = version;
-
-    let nglobals = c.read_u32()?;
-    for _ in 0..nglobals {
-        prog.global_inits.push(decode_instruction(&mut c)?);
-    }
 
     let nfuncs = c.read_u32()?;
     for _ in 0..nfuncs {
@@ -590,24 +579,6 @@ mod tests {
         }
     }
 
-    // ── Global inits ──────────────────────────────────────────────────────────
-
-    #[test]
-    fn test_global_inits_round_trip() {
-        let mut prog = simple_program(vec![]);
-        prog.global_inits.push(Instruction::new(
-            Opcode::Reserve,
-            vec![
-                Operand::Key(0),
-                Operand::Type(FasmType::Int32),
-                Operand::Imm(Immediate::Null),
-            ],
-        ));
-        let rt = round_trip(&prog);
-        assert_eq!(rt.global_inits.len(), 1);
-        assert_eq!(rt.global_inits[0].opcode, Opcode::Reserve);
-    }
-
     // ── Function with params ──────────────────────────────────────────────────
 
     #[test]
@@ -656,7 +627,6 @@ mod tests {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(MAGIC);
         bytes.push(0x01); // version
-        bytes.extend_from_slice(&0u32.to_le_bytes()); // 0 global inits
         bytes.extend_from_slice(&1u32.to_le_bytes()); // 1 function
                                                       // function name "Main"
         let name = b"Main";

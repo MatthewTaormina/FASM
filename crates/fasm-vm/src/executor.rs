@@ -1,6 +1,6 @@
 use crate::{
     fault::Fault,
-    memory::{Frame, GlobalRegister},
+    memory::Frame,
     value::{
         numeric_as_i64, numeric_as_u64, FasmBTree, FasmBitset, FasmBitvec, FasmDeque, FasmHeapMax,
         FasmHeapMin, FasmOption, FasmQueue, FasmResult, FasmSlice, FasmSparse, FasmStack,
@@ -38,7 +38,6 @@ struct TryGuard {
     catch_ip: usize, // instruction index of CATCH
     end_ip: usize,   // instruction index of ENDTRY
     frame_snap: Vec<Option<Value>>,
-    global_snap: Vec<Option<Value>>,
 }
 
 /// One entry on the call stack.
@@ -69,11 +68,10 @@ impl CallFrame {
 }
 
 /// A syscall handler signature.
-pub type SyscallFn = Box<dyn Fn(Value, &mut GlobalRegister) -> Result<Value, Fault> + Send + Sync>;
+pub type SyscallFn = Box<dyn Fn(Value) -> Result<Value, Fault> + Send + Sync>;
 
 /// The main VM executor.
 pub struct Executor {
-    pub globals: GlobalRegister,
     syscalls: HashMap<i32, SyscallFn>,
     call_stack: Vec<CallFrame>,
     /// Optional JIT dispatcher — if set, eligible functions bypass the interpreter.
@@ -85,7 +83,6 @@ pub struct Executor {
 impl Executor {
     pub fn new() -> Self {
         let mut ex = Self {
-            globals: GlobalRegister::new(),
             syscalls: HashMap::new(),
             call_stack: Vec::new(),
             jit: None,
@@ -111,10 +108,6 @@ impl Executor {
     /// Clear the call stack so this executor can be safely reused for a new
     /// invocation.  Called by [`fasm_sandbox::Sandbox::reset`] when a pooled
     /// sandbox is recycled between requests.
-    ///
-    /// Global slots are re-initialised by [`fasm_sandbox::Sandbox::run_named`]
-    /// at the start of every invocation (the `Reserve` global-inits loop), so
-    /// they do not need to be cleared here.
     pub fn reset_call_stack(&mut self) {
         self.call_stack.clear();
     }
@@ -123,7 +116,7 @@ impl Executor {
         // 0 = PRINT: struct key 0 = value to print, or just print the value directly
         self.syscalls.insert(
             0,
-            Box::new(|args, _globals| {
+            Box::new(|args| {
                 let v = if let Value::Struct(s) = &args {
                     s.get(&0).cloned().unwrap_or_else(|| args.clone())
                 } else {
@@ -136,7 +129,7 @@ impl Executor {
         // 1 = PRINT_VEC: struct key 0 = VEC to print as text, or just print the value directly
         self.syscalls.insert(
             1,
-            Box::new(|args, _globals| {
+            Box::new(|args| {
                 let v = if let Value::Struct(s) = &args {
                     s.get(&0).cloned().unwrap_or_else(|| args.clone())
                 } else {
@@ -151,7 +144,7 @@ impl Executor {
         // callers never need to sanitise the result themselves.
         self.syscalls.insert(
             2,
-            Box::new(|_args, _globals| {
+            Box::new(|_args| {
                 let mut line = String::new();
                 std::io::stdin().read_line(&mut line).ok();
                 let bytes: Vec<Value> = line.trim_end().bytes().map(Value::Uint8).collect();
@@ -161,7 +154,7 @@ impl Executor {
         // 3 = EXIT: struct key 0 = exit code
         self.syscalls.insert(
             3,
-            Box::new(|args, _globals| {
+            Box::new(|args| {
                 let code = if let Value::Struct(s) = &args {
                     match s.get(&0) {
                         Some(Value::Int32(n)) => *n,
@@ -179,7 +172,7 @@ impl Executor {
         //     to implement digit parsing manually.
         self.syscalls.insert(
             4,
-            Box::new(|args, _globals| {
+            Box::new(|args| {
                 const ERR_BAD_INPUT: u32 = 1;
                 let bytes = if let Value::Struct(s) = &args {
                     match s.get(&0) {
@@ -256,29 +249,14 @@ impl Executor {
     ///
     /// `args` is passed as the function's `$args` struct, enabling HTTP handlers,
     /// scheduled tasks, and event handlers to be regular FASM functions with typed
-    /// `PARAM` declarations. Global variables are initialised before the call.
+    /// `PARAM` declarations.  All state is local to the call frame — no global
+    /// memory persists between independent invocations.
     pub fn run_named(
         &mut self,
         program: &Program,
         func: &str,
         args: Value,
     ) -> Result<Value, String> {
-        // Execute global inits (idempotent — engine may call multiple handlers
-        // on the same executor instance, re-running inits is harmless because
-        // Reserve is a set, not an append).
-        for instr in &program.global_inits {
-            if let Opcode::Reserve = instr.opcode {
-                if let (Some(Operand::Key(idx)), Some(Operand::Type(t)), Some(init)) = (
-                    instr.operands.first(),
-                    instr.operands.get(1),
-                    instr.operands.get(2),
-                ) {
-                    let val = imm_to_value_for_type(*t, init);
-                    self.globals.set(*idx, val);
-                }
-            }
-        }
-
         let func_idx = program
             .get_function_index(func)
             .ok_or_else(|| format!("No '{}' function found in program", func))?;
@@ -368,10 +346,9 @@ impl Executor {
                     // Check for TRY guard
                     let guard = self.call_stack.last_mut().unwrap().try_guard.take();
                     if let Some(g) = guard {
-                        // Rollback memory
+                        // Rollback local frame memory
                         let frame = &mut self.call_stack.last_mut().unwrap().frame;
                         frame.restore(g.frame_snap);
-                        self.globals.restore(g.global_snap);
                         // Set $fault_code via $ret
                         let cf = self.call_stack.last_mut().unwrap();
                         cf.ret_val = Value::Uint32(fault.code());
@@ -675,10 +652,10 @@ impl Executor {
                 let id = syscall_id(get_op!(0))?;
                 let args = read_val!(get_op!(1));
                 // SAFETY: we take a raw pointer to the boxed fn before calling it so
-                // that we can simultaneously hold &mut self.globals. The syscalls map
+                // that we can hold &mut self simultaneously. The syscalls map
                 // is not mutated during the call.
                 let handler: *const SyscallFn = self.syscalls.get(&id).ok_or(Fault::BadSyscall)?;
-                let result = unsafe { (*handler)(args, &mut self.globals) }?;
+                let result = unsafe { (*handler)(args) }?;
                 self.call_stack.last_mut().unwrap().ret_val = result;
                 Ok(Action::Continue)
             }
@@ -686,7 +663,7 @@ impl Executor {
                 let id = syscall_id(get_op!(0))?;
                 let args = read_val!(get_op!(1));
                 let handler: *const SyscallFn = self.syscalls.get(&id).ok_or(Fault::BadSyscall)?;
-                let result = unsafe { (*handler)(args, &mut self.globals) }?;
+                let result = unsafe { (*handler)(args) }?;
                 self.call_stack.last_mut().unwrap().ret_val = Value::Future(Some(Box::new(result)));
                 Ok(Action::Continue)
             }
@@ -920,12 +897,10 @@ impl Executor {
                 let catch_ip = label_target(get_op!(0))?;
                 let end_ip = label_target(get_op!(1))?;
                 let frame_snap = self.call_stack.last().unwrap().frame.snapshot();
-                let global_snap = self.globals.snapshot();
                 self.call_stack.last_mut().unwrap().try_guard = Some(TryGuard {
                     catch_ip,
                     end_ip,
                     frame_snap,
-                    global_snap,
                 });
                 Ok(Action::Continue)
             }
@@ -1331,11 +1306,11 @@ impl Executor {
                 }
                 f.slots[*idx as usize].clone().ok_or(Fault::UndeclaredSlot) // Tmp slots must have been written to
             }
-            SlotRef::Global(idx) => self
-                .globals
-                .get(*idx as u32)
-                .cloned()
-                .ok_or(Fault::UndeclaredSlot),
+            SlotRef::Global(_) | SlotRef::DerefGlobal(_) => {
+                // Global slots are no longer supported — programs must use
+                // local slots or pass state via $args / KEY_STATE.
+                Err(Fault::WriteAccessViolation)
+            }
             SlotRef::DerefLocal(idx) => {
                 let cf = self.call_stack.last().unwrap();
                 let ref_val = cf.frame.get(*idx).ok_or(Fault::UndeclaredSlot)?;
@@ -1352,10 +1327,6 @@ impl Executor {
                     .ok_or(Fault::UndeclaredSlot)?;
                 self.deref_value(ref_val)
             }
-            SlotRef::DerefGlobal(idx) => {
-                let ref_val = self.globals.get(*idx as u32).ok_or(Fault::UndeclaredSlot)?;
-                self.deref_value(ref_val)
-            }
             SlotRef::BuiltIn(b) => {
                 let cf = self.call_stack.last().unwrap();
                 Ok(match b {
@@ -1370,13 +1341,13 @@ impl Executor {
 
     fn deref_value(&self, ref_val: &Value) -> Result<Value, Fault> {
         match ref_val {
-            Value::RefMut(is_global, idx) | Value::RefImm(is_global, idx) => {
-                if *is_global {
-                    self.globals.get(*idx).cloned().ok_or(Fault::NullDeref)
-                } else {
-                    let cf = self.call_stack.last().unwrap();
-                    cf.frame.get(*idx as u8).cloned().ok_or(Fault::NullDeref)
-                }
+            Value::RefMut(is_global, _) | Value::RefImm(is_global, _) if *is_global => {
+                // Global refs are no longer valid.
+                Err(Fault::WriteAccessViolation)
+            }
+            Value::RefMut(_, idx) | Value::RefImm(_, idx) => {
+                let cf = self.call_stack.last().unwrap();
+                cf.frame.get(*idx as u8).cloned().ok_or(Fault::NullDeref)
             }
             Value::Null => Err(Fault::NullDeref),
             _ => Ok(ref_val.clone()),
@@ -1405,9 +1376,9 @@ impl Executor {
                 f.slots[*idx as usize] = Some(val);
                 Ok(())
             }
-            SlotRef::Global(idx) => {
-                self.globals.set(*idx as u32, val);
-                Ok(())
+            SlotRef::Global(_) | SlotRef::DerefGlobal(_) => {
+                // Global slots are no longer supported.
+                Err(Fault::WriteAccessViolation)
             }
             SlotRef::DerefLocal(idx) => {
                 let ref_val = {
@@ -1429,14 +1400,6 @@ impl Executor {
                 };
                 self.deref_write(ref_val, val)
             }
-            SlotRef::DerefGlobal(idx) => {
-                let ref_val = self
-                    .globals
-                    .get(*idx as u32)
-                    .cloned()
-                    .ok_or(Fault::UndeclaredSlot)?;
-                self.deref_write(ref_val, val)
-            }
             SlotRef::BuiltIn(b) => {
                 let cf = self.call_stack.last_mut().unwrap();
                 match b {
@@ -1452,16 +1415,16 @@ impl Executor {
 
     fn deref_write(&mut self, ref_val: Value, val: Value) -> Result<(), Fault> {
         match ref_val {
-            Value::RefMut(is_global, idx) => {
-                if is_global {
-                    self.globals.set(idx, val);
-                } else {
-                    self.call_stack
-                        .last_mut()
-                        .unwrap()
-                        .frame
-                        .set(idx as u8, val);
-                }
+            Value::RefMut(is_global, _) if is_global => {
+                // Global refs are no longer valid.
+                Err(Fault::WriteAccessViolation)
+            }
+            Value::RefMut(_, idx) => {
+                self.call_stack
+                    .last_mut()
+                    .unwrap()
+                    .frame
+                    .set(idx as u8, val);
                 Ok(())
             }
             Value::RefImm(_, _) => Err(Fault::WriteAccessViolation),
@@ -1484,10 +1447,6 @@ impl Executor {
                 }
                 f.slots[*idx as usize].as_mut().ok_or(Fault::UndeclaredSlot)
             }
-            Operand::Slot(SlotRef::Global(idx)) => self
-                .globals
-                .get_mut(*idx as u32)
-                .ok_or(Fault::UndeclaredSlot),
             _ => Err(Fault::TypeMismatch),
         }
     }
@@ -1508,9 +1467,6 @@ impl Executor {
                     }
                 }
             }
-            Operand::Slot(SlotRef::Global(idx)) => {
-                self.globals.remove(*idx as u32);
-            }
             _ => {}
         }
     }
@@ -1518,7 +1474,6 @@ impl Executor {
     fn slot_address(&self, op: &Operand) -> (bool, u32) {
         match op {
             Operand::Slot(SlotRef::Local(i)) => (false, *i as u32),
-            Operand::Slot(SlotRef::Global(i)) => (true, *i as u32),
             _ => (false, 0),
         }
     }
@@ -2367,18 +2322,12 @@ ENDF
         assert_eq!(run(src), Value::Null);
     }
 
-    // ── Global variables ──────────────────────────────────────────────────────
-    // Global variables are declared at the top level with RESERVE and accessed
-    // by their key in the executor's global register. There is no source-level
-    // syntax to address globals from within a function, so this test verifies
-    // that global_inits are executed before Main runs by using them as a
-    // counter that functions can read via the sandbox/vm API.
-    //
-    // We verify globals via a round-trip: compile a program with a top-level
-    // RESERVE and confirm the bytecode contains the global_inits entry.
+    // ── Global register (removed) ──────────────────────────────────────────────
+    // Top-level RESERVE is now a ScopeError — programs must declare all state
+    // inside FUNC blocks and pass it via $args / KEY_STATE.
 
     #[test]
-    fn test_global_reserve_initialised_before_main() {
+    fn test_top_level_reserve_is_scope_error() {
         let src = "
 RESERVE 0, INT32, 0
 
@@ -2386,14 +2335,12 @@ FUNC Main
     RET
 ENDF
 ";
-        let prog = fasm_compiler::compile_source(src).expect("compile");
-        // The global_inits should contain one RESERVE instruction.
-        assert_eq!(prog.global_inits.len(), 1);
-        // Running the program must succeed with the global pre-initialised.
-        let mut ex = Executor::new();
-        ex.run(&prog).expect("run");
-        // After running, global slot 0 should hold Int32(0).
-        assert_eq!(ex.globals.get(0), Some(&Value::Int32(0)));
+        let err = fasm_compiler::compile_source(src).unwrap_err();
+        assert!(
+            err.contains("ScopeError") || err.contains("top level"),
+            "expected ScopeError, got: {}",
+            err
+        );
     }
 
     // ── Stack overflow ────────────────────────────────────────────────────────
