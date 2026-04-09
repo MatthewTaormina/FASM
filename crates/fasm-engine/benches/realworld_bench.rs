@@ -179,6 +179,7 @@ fn bench_cold_start_ping(c: &mut Criterion) {
                     program,
                     args: Value::Struct(FasmStruct::default()),
                     trigger: "cold_start".into(),
+                    jit: None,
                 };
                 criterion::black_box(disp.spawn_async(req).await.unwrap())
             }
@@ -199,6 +200,7 @@ fn bench_cold_start_ping(c: &mut Criterion) {
                     program,
                     args: Value::Struct(FasmStruct::default()),
                     trigger: "cold_start".into(),
+                    jit: None,
                 };
                 criterion::black_box(disp.spawn_async(req).await.unwrap())
             }
@@ -264,6 +266,7 @@ fn bench_vm_ops_throughput(c: &mut Criterion) {
                         program: p,
                         args: Value::Struct(FasmStruct::default()),
                         trigger: "bench".into(),
+                        jit: None,
                     };
                     criterion::black_box(d.spawn_async(req).await.unwrap())
                 }
@@ -284,6 +287,7 @@ fn bench_vm_ops_throughput(c: &mut Criterion) {
                         program: p,
                         args: Value::Struct(FasmStruct::default()),
                         trigger: "bench".into(),
+                        jit: None,
                     };
                     criterion::black_box(d.spawn_async(req).await.unwrap())
                 }
@@ -304,6 +308,7 @@ fn bench_vm_ops_throughput(c: &mut Criterion) {
                         program: p,
                         args: Value::Struct(FasmStruct::default()),
                         trigger: "bench".into(),
+                        jit: None,
                     };
                     criterion::black_box(d.spawn_async(req).await.unwrap())
                 }
@@ -324,6 +329,7 @@ fn bench_vm_ops_throughput(c: &mut Criterion) {
                         program: p,
                         args: Value::Struct(FasmStruct::default()),
                         trigger: "bench".into(),
+                        jit: None,
                     };
                     criterion::black_box(d.spawn_async(req).await.unwrap())
                 }
@@ -344,6 +350,7 @@ fn bench_vm_ops_throughput(c: &mut Criterion) {
                         program: p,
                         args: Value::Struct(FasmStruct::default()),
                         trigger: "bench".into(),
+                        jit: None,
                     };
                     criterion::black_box(d.spawn_async(req).await.unwrap())
                 }
@@ -565,6 +572,7 @@ fn bench_dispatcher_concurrency_scaling(c: &mut Criterion) {
                                         program: ppp,
                                         args: Value::Struct(FasmStruct::default()),
                                         trigger: "bench".into(),
+                                        jit: None,
                                     };
                                     ddd.spawn_async(req).await.unwrap()
                                 }

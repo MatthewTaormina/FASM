@@ -23,6 +23,7 @@ harness = false
 fasm-bytecode  = { path = "../fasm-bytecode" }
 fasm-compiler  = { path = "../fasm-compiler" }
 fasm-vm        = { path = "../fasm-vm" }
+fasm-jit       = { path = "../fasm-jit" }
 fasm-sandbox   = { path = "../fasm-sandbox" }
 
 tokio          = { version = "1", features = ["full"] }
@@ -39,6 +40,7 @@ flate2         = "1"
 base64         = "0.22"
 
 [dev-dependencies]
+fasm-jit   = { path = "../fasm-jit" }
 reqwest    = { version = "0.12", features = ["json", "blocking"] }
 criterion  = { version = "0.5", features = ["async_tokio"] }
 sysinfo    = "0.33"

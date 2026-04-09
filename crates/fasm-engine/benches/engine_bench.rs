@@ -22,6 +22,7 @@ use fasm_engine::{
     dispatcher::{ExecRequest, TaskDispatcher},
     metrics::MetricsRegistry,
 };
+use fasm_jit::FasmJit;
 use fasm_sandbox::SandboxConfig;
 use fasm_vm::{value::FasmStruct, Value};
 
@@ -204,6 +205,7 @@ fn bench_raw_vm_ping(c: &mut Criterion) {
                     program: p,
                     args: Value::Struct(FasmStruct::default()),
                     trigger: "bench".into(),
+                    jit: None,
                 };
                 criterion::black_box(d.spawn_async(req).await.unwrap());
             }
@@ -232,6 +234,7 @@ fn bench_raw_vm_fib30(c: &mut Criterion) {
                     program: p,
                     args: Value::Struct(FasmStruct::default()),
                     trigger: "bench".into(),
+                    jit: None,
                 };
                 criterion::black_box(d.spawn_async(req).await.unwrap());
             }
@@ -257,12 +260,44 @@ fn bench_http_fib_roundtrip(c: &mut Criterion) {
     });
 }
 
+// ── Benchmark 6: Raw VM — Fibonacci(30) with JIT ─────────────────────────────
+
+fn bench_raw_vm_fib30_jit(c: &mut Criterion) {
+    let rt = Runtime::new().unwrap();
+
+    let src = read_fixture("fib_handler.fasm");
+    let program = Arc::new(compile_source(&src).expect("compile fib_handler.fasm"));
+    let jit = FasmJit::compile(&program).map(Arc::new);
+    let metrics = MetricsRegistry::new();
+    let sandbox = Arc::new(SandboxConfig::default());
+    let disp = TaskDispatcher::new_with_config(128, metrics, sandbox);
+
+    c.bench_function("vm_raw_fib30_jit", |b| {
+        b.to_async(&rt).iter(|| {
+            let d = disp.clone();
+            let p = program.clone();
+            let j = jit.clone();
+            async move {
+                let req = ExecRequest {
+                    func: "FibHandler".into(),
+                    program: p,
+                    args: Value::Struct(FasmStruct::default()),
+                    trigger: "bench".into(),
+                    jit: j,
+                };
+                criterion::black_box(d.spawn_async(req).await.unwrap());
+            }
+        });
+    });
+}
+
 criterion_group!(
     benches,
     bench_http_ping_latency,
     bench_http_concurrent_throughput,
     bench_raw_vm_ping,
     bench_raw_vm_fib30,
+    bench_raw_vm_fib30_jit,
     bench_http_fib_roundtrip,
 );
 criterion_main!(benches);

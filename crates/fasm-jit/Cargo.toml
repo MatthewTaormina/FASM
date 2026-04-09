@@ -1,0 +1,15 @@
+[package]
+name    = "fasm-jit"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fasm-bytecode    = { path = "../fasm-bytecode" }
+fasm-vm          = { path = "../fasm-vm" }
+cranelift-jit    = "0.130"
+cranelift-module = "0.130"
+cranelift-codegen = "0.130"
+cranelift-frontend = "0.130"
+
+[dev-dependencies]
+fasm-compiler = { path = "../fasm-compiler" }

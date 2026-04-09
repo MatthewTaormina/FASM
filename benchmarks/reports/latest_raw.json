@@ -1,6 +1,6 @@
 {
   "meta": {
-    "date": "2026-04-08T22:07:56Z",
+    "date": "2026-04-08T22:39:48Z",
     "os": "Linux 6.17.0-1008-azure x86_64",
     "cpu": "AMD EPYC 7763 64-Core Processor",
     "rust_version": "1.94.1",
@@ -10,13 +10,13 @@
     "cold_start_runs": 20
   },
   "build": {
-    "fasm_build_time_ms": 120,
-    "fasm_cli_binary_size_bytes": 1240624,
-    "fasm_engine_binary_size_bytes": 6196960
+    "fasm_build_time_ms": 66501,
+    "fasm_cli_binary_size_bytes": 1103488,
+    "fasm_engine_binary_size_bytes": 4783464
   },
   "cold_start_ms": {
     "fasm_compile_plus_exec": 2,
-    "node_process_spawn_exec": 24,
+    "node_process_spawn_exec": 25,
     "python_process_spawn_exec": 22,
     "reference_aws_lambda_rust_ms": 17,
     "reference_aws_lambda_python312_ms": 100,
@@ -27,17 +27,17 @@
     "fasm_fib_handler_avg": 2
   },
   "http_throughput_rps": {
-    "fasm_ping_c1":  4336.29,
-    "fasm_ping_c8":  9134.76,
-    "fasm_ping_c32": 9232.42,
-    "fasm_fib_c1":   3949.76,
-    "fasm_fib_c8":   8764.40,
-    "node_ping_c1":  3436.31,
-    "node_ping_c8":  6823.33,
-    "node_ping_c32": 7730.96,
-    "python_ping_c1":  2836.44,
-    "python_ping_c8":  2914.45,
-    "python_ping_c32": 2900.70,
+    "fasm_ping_c1":  4325.52,
+    "fasm_ping_c8":  8427.01,
+    "fasm_ping_c32": 9746.97,
+    "fasm_fib_c1":   4210.31,
+    "fasm_fib_c8":   8281.85,
+    "node_ping_c1":  3242.71,
+    "node_ping_c8":  6826.50,
+    "node_ping_c32": 8304.82,
+    "python_ping_c1":  2763.71,
+    "python_ping_c8":  2802.36,
+    "python_ping_c32": 2792.50,
     "reference_native_rust_axum_rps":   48700,
     "reference_node_express_rps":       5700,
     "reference_python_fastapi_rps":     1200,
@@ -57,8 +57,8 @@
     "python_ping_c1_p99": 0
   },
   "memory_kb": {
-    "fasm_engine_idle":   6068,
-    "fasm_engine_loaded": 6472,
+    "fasm_engine_idle":   5492,
+    "fasm_engine_loaded": 5828,
     "reference_node_express_idle_kb":   83000,
     "reference_python_fastapi_idle_kb": 45000,
     "reference_native_rust_axum_kb":    8000,

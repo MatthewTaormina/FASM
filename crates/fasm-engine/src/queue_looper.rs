@@ -81,6 +81,7 @@ pub fn spawn_queue_looper(
                         program: program.clone(),
                         args: Value::Struct(args_struct),
                         trigger: "queue".to_string(),
+                        jit: None,
                     };
 
                     match dispatcher.spawn_fire_and_forget(req) {

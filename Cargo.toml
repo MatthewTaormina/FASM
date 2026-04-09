@@ -3,8 +3,14 @@ members = [
     "crates/fasm-bytecode",
     "crates/fasm-compiler",
     "crates/fasm-vm",
+    "crates/fasm-jit",
     "crates/fasm-sandbox",
     "crates/fasm-cli",
     "crates/fasm-engine",
 ]
 resolver = "2"
+
+[profile.release]
+opt-level      = 3
+lto            = "thin"   # cross-crate inlining — biggest single win for a multi-crate workspace
+codegen-units  = 1        # single CGU lets LLVM see the whole program at once
