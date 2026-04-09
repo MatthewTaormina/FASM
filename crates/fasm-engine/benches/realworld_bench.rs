@@ -572,7 +572,7 @@ fn bench_dispatcher_concurrency_scaling(c: &mut Criterion) {
                                         program: ppp,
                                         args: Value::Struct(FasmStruct::default()),
                                         trigger: "bench".into(),
-                        jit: None,
+                                        jit: None,
                                     };
                                     ddd.spawn_async(req).await.unwrap()
                                 }

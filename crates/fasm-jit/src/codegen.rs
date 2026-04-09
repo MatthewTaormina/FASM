@@ -72,9 +72,7 @@ pub fn compile_program(
     for (&func_idx, info) in eligible {
         let sig = build_signature(&module, info);
         let name = format!("__fasm_jit_{}", func_idx);
-        let id = module
-            .declare_function(&name, Linkage::Export, &sig)
-            .ok()?;
+        let id = module.declare_function(&name, Linkage::Export, &sig).ok()?;
         func_ids.insert(func_idx, id);
     }
 
@@ -86,20 +84,20 @@ pub fn compile_program(
         let mut ctx = module.make_context();
         ctx.func.signature = sig;
 
-        if compile_fn(
-            &mut ctx.func,
-            &mut fn_builder_ctx,
-            func_def,
-            info,
-            func_idx,
-        ).is_none() {
-            eprintln!("[fasm-jit] compile_fn returned None for func_idx={}", func_idx);
+        if compile_fn(&mut ctx.func, &mut fn_builder_ctx, func_def, info, func_idx).is_none() {
+            eprintln!(
+                "[fasm-jit] compile_fn returned None for func_idx={}",
+                func_idx
+            );
             return None;
         }
 
         let func_id = func_ids[&func_idx];
         if let Err(e) = module.define_function(func_id, &mut ctx) {
-            eprintln!("[fasm-jit] define_function error for func_idx={}: {:?}", func_idx, e);
+            eprintln!(
+                "[fasm-jit] define_function error for func_idx={}: {:?}",
+                func_idx, e
+            );
             return None;
         }
         module.clear_context(&mut ctx);
@@ -113,7 +111,7 @@ pub fn compile_program(
     // Pass 3 — gather function pointers.
     let mut entries = HashMap::new();
     for (&func_idx, &func_id) in &func_ids {
-        let fn_ptr = module.get_finalized_function(func_id) as *const u8;
+        let fn_ptr = module.get_finalized_function(func_id);
         let info = &eligible[&func_idx];
         entries.insert(
             func_idx,
@@ -295,195 +293,376 @@ fn compile_fn(
         let cur_ip = ip;
         ip += 1;
 
-        let step: Option<()> = (|| { match instr.opcode {
-            // ── No-ops ──────────────────────────────────────────────────────
-            Opcode::Nop | Opcode::TmpBlock | Opcode::EndTmp | Opcode::Release => {}
+        let step: Option<()> = (|| {
+            match instr.opcode {
+                // ── No-ops ──────────────────────────────────────────────────────
+                Opcode::Nop | Opcode::TmpBlock | Opcode::EndTmp | Opcode::Release => {}
 
-            Opcode::Reserve => {
-                // No action: numeric slots are zero-initialised in prologue;
-                // struct accumulator slots are tracked via setfield_vals.
-            }
-
-            // ── Data movement ────────────────────────────────────────────────
-            Opcode::Mov => {
-                let val = read_op(&mut builder, instr.operands.first()?, &vars, &ret_var, info.ret_type)?;
-                write_op(&mut builder, instr.operands.get(1)?, val, &vars, &ret_var)?;
-            }
-            Opcode::Store => {
-                let val = imm_to_cv(&mut builder, instr.operands.first()?, info.ret_type)?;
-                write_op(&mut builder, instr.operands.get(1)?, val, &vars, &ret_var)?;
-            }
-
-            // ── Arithmetic ───────────────────────────────────────────────────
-            Opcode::Add => emit_binop(&mut builder, instr, &vars, &ret_var, info.ret_type, BinOp::Add)?,
-            Opcode::Sub => emit_binop(&mut builder, instr, &vars, &ret_var, info.ret_type, BinOp::Sub)?,
-            Opcode::Mul => emit_binop(&mut builder, instr, &vars, &ret_var, info.ret_type, BinOp::Mul)?,
-            Opcode::Div => emit_binop(&mut builder, instr, &vars, &ret_var, info.ret_type, BinOp::Div)?,
-            Opcode::Mod => emit_binop(&mut builder, instr, &vars, &ret_var, info.ret_type, BinOp::Mod)?,
-            Opcode::And => emit_binop(&mut builder, instr, &vars, &ret_var, info.ret_type, BinOp::And)?,
-            Opcode::Or  => emit_binop(&mut builder, instr, &vars, &ret_var, info.ret_type, BinOp::Or)?,
-            Opcode::Xor => emit_binop(&mut builder, instr, &vars, &ret_var, info.ret_type, BinOp::Xor)?,
-            Opcode::Shl => emit_binop(&mut builder, instr, &vars, &ret_var, info.ret_type, BinOp::Shl)?,
-            Opcode::Shr => emit_binop(&mut builder, instr, &vars, &ret_var, info.ret_type, BinOp::Shr)?,
-
-            Opcode::Neg => {
-                let a = read_op(&mut builder, instr.operands.first()?, &vars, &ret_var, info.ret_type)?;
-                let ty = builder.func.dfg.value_type(a);
-                let result = if ty == F32 || ty == F64 {
-                    builder.ins().fneg(a)
-                } else {
-                    let zero = builder.ins().iconst(ty, 0);
-                    builder.ins().isub(zero, a)
-                };
-                write_op(&mut builder, instr.operands.get(1)?, result, &vars, &ret_var)?;
-            }
-            Opcode::Not => {
-                let a = read_op(&mut builder, instr.operands.first()?, &vars, &ret_var, info.ret_type)?;
-                let ty = builder.func.dfg.value_type(a);
-                let ones = builder.ins().iconst(ty, -1i64);
-                let result = builder.ins().bxor(a, ones);
-                write_op(&mut builder, instr.operands.get(1)?, result, &vars, &ret_var)?;
-            }
-
-            // ── Comparison ───────────────────────────────────────────────────
-            Opcode::Eq  => emit_cmp(&mut builder, instr, &vars, &ret_var, info.ret_type, IntCC::Equal)?,
-            Opcode::Neq => emit_cmp(&mut builder, instr, &vars, &ret_var, info.ret_type, IntCC::NotEqual)?,
-            Opcode::Lt  => emit_cmp(&mut builder, instr, &vars, &ret_var, info.ret_type, IntCC::SignedLessThan)?,
-            Opcode::Lte => emit_cmp(&mut builder, instr, &vars, &ret_var, info.ret_type, IntCC::SignedLessThanOrEqual)?,
-            Opcode::Gt  => emit_cmp(&mut builder, instr, &vars, &ret_var, info.ret_type, IntCC::SignedGreaterThan)?,
-            Opcode::Gte => emit_cmp(&mut builder, instr, &vars, &ret_var, info.ret_type, IntCC::SignedGreaterThanOrEqual)?,
-
-            // ── Control flow ─────────────────────────────────────────────────
-            Opcode::Jmp => {
-                let target_ip = label_target_ip(instr.operands.last()?)?;
-                let target_blk = *ip_to_block.get(&target_ip)?;
-                let no_args: Vec<BlockArg> = Vec::new();
-                builder.ins().jump(target_blk, no_args.iter());
-                terminated = true;
-            }
-            Opcode::Jnz => {
-                let cond = read_op(&mut builder, instr.operands.first()?, &vars, &ret_var, info.ret_type)?;
-                let target_ip = label_target_ip(instr.operands.get(1)?)?;
-                let target_blk = *ip_to_block.get(&target_ip)?;
-                let fall_blk   = *ip_to_block.get(&ip)?;
-                let nz = is_truthy(&mut builder, cond);
-                let t_args: Vec<BlockArg> = Vec::new();
-                let f_args: Vec<BlockArg> = Vec::new();
-                builder.ins().brif(nz, target_blk, t_args.iter(), fall_blk, f_args.iter());
-                terminated = true;
-            }
-            Opcode::Jz => {
-                let cond = read_op(&mut builder, instr.operands.first()?, &vars, &ret_var, info.ret_type)?;
-                let target_ip = label_target_ip(instr.operands.get(1)?)?;
-                let target_blk = *ip_to_block.get(&target_ip)?;
-                let fall_blk   = *ip_to_block.get(&ip)?;
-                let z = is_zero(&mut builder, cond);
-                let t_args: Vec<BlockArg> = Vec::new();
-                let f_args: Vec<BlockArg> = Vec::new();
-                builder.ins().brif(z, target_blk, t_args.iter(), fall_blk, f_args.iter());
-                terminated = true;
-            }
-
-            // ── Struct field access ───────────────────────────────────────────
-            Opcode::GetField => {
-                // Only $args is supported: reads from the loop-carried param Variable.
-                match instr.operands.first() {
-                    Some(Operand::Slot(SlotRef::BuiltIn(BuiltIn::Args))) => {}
-                    _ => return None,
+                Opcode::Reserve => {
+                    // No action: numeric slots are zero-initialised in prologue;
+                    // struct accumulator slots are tracked via setfield_vals.
                 }
-                let key = match instr.operands.get(1) {
-                    Some(Operand::Key(k)) => *k,
-                    _ => return None,
-                };
-                let pv = *param_vars.get(&key)?;
-                let param_val = builder.use_var(pv);
-                let dst_op = instr.operands.get(2)?;
-                write_op(&mut builder, dst_op, param_val, &vars, &ret_var)?;
-            }
-            Opcode::SetField => {
-                // Accumulate (struct_slot, key) → CVal for the next TailCall.
-                let struct_slot = match instr.operands.first() {
-                    Some(Operand::Slot(SlotRef::Local(s))) => *s,
-                    _ => return None,
-                };
-                let key = match instr.operands.get(1) {
-                    Some(Operand::Key(k)) => *k,
-                    _ => return None,
-                };
-                let val = read_op(&mut builder, instr.operands.get(2)?, &vars, &ret_var, info.ret_type)?;
-                setfield_vals.insert((struct_slot, key), val);
-            }
 
-            // ── Self tail-call → loop back to loop_blk ────────────────────────
-            Opcode::TailCall => {
-                let target_idx = match instr.operands.first() {
-                    Some(Operand::FuncRef(idx)) => *idx as usize,
-                    _ => return None,
-                };
-                if target_idx != self_idx {
-                    return None;
+                // ── Data movement ────────────────────────────────────────────────
+                Opcode::Mov => {
+                    let val = read_op(
+                        &mut builder,
+                        instr.operands.first()?,
+                        &vars,
+                        &ret_var,
+                        info.ret_type,
+                    )?;
+                    write_op(&mut builder, instr.operands.get(1)?, val, &vars, &ret_var)?;
                 }
-                let struct_slot = match instr.operands.get(1) {
-                    Some(Operand::Slot(SlotRef::Local(s))) => *s,
-                    _ => return None,
-                };
-                // Update param_vars then jump to loop_blk.
-                // We must collect all values BEFORE updating any variables to
-                // avoid use-after-redefine ordering hazards.
-                let mut new_vals: Vec<(u32, CVal)> = Vec::with_capacity(info.params.len());
-                for &(param_key, _jt) in &info.params {
-                    let val = *setfield_vals.get(&(struct_slot, param_key))?;
-                    new_vals.push((param_key, val));
+                Opcode::Store => {
+                    let val = imm_to_cv(&mut builder, instr.operands.first()?, info.ret_type)?;
+                    write_op(&mut builder, instr.operands.get(1)?, val, &vars, &ret_var)?;
                 }
-                for (param_key, val) in new_vals {
-                    let pv = *param_vars.get(&param_key)?;
-                    builder.def_var(pv, val);
-                }
-                let no_args: Vec<BlockArg> = Vec::new();
-                builder.ins().jump(loop_blk, no_args.iter());
-                terminated = true;
-            }
 
-            // ── Return ────────────────────────────────────────────────────────
-            Opcode::Ret => {
-                let op = instr.operands.first();
-                let ret_val = match op {
-                    None => zero_val(&mut builder, info.ret_type),
-                    Some(Operand::Slot(SlotRef::BuiltIn(BuiltIn::Ret))) => {
-                        builder.use_var(ret_var)
+                // ── Arithmetic ───────────────────────────────────────────────────
+                Opcode::Add => emit_binop(
+                    &mut builder,
+                    instr,
+                    &vars,
+                    &ret_var,
+                    info.ret_type,
+                    BinOp::Add,
+                )?,
+                Opcode::Sub => emit_binop(
+                    &mut builder,
+                    instr,
+                    &vars,
+                    &ret_var,
+                    info.ret_type,
+                    BinOp::Sub,
+                )?,
+                Opcode::Mul => emit_binop(
+                    &mut builder,
+                    instr,
+                    &vars,
+                    &ret_var,
+                    info.ret_type,
+                    BinOp::Mul,
+                )?,
+                Opcode::Div => emit_binop(
+                    &mut builder,
+                    instr,
+                    &vars,
+                    &ret_var,
+                    info.ret_type,
+                    BinOp::Div,
+                )?,
+                Opcode::Mod => emit_binop(
+                    &mut builder,
+                    instr,
+                    &vars,
+                    &ret_var,
+                    info.ret_type,
+                    BinOp::Mod,
+                )?,
+                Opcode::And => emit_binop(
+                    &mut builder,
+                    instr,
+                    &vars,
+                    &ret_var,
+                    info.ret_type,
+                    BinOp::And,
+                )?,
+                Opcode::Or => emit_binop(
+                    &mut builder,
+                    instr,
+                    &vars,
+                    &ret_var,
+                    info.ret_type,
+                    BinOp::Or,
+                )?,
+                Opcode::Xor => emit_binop(
+                    &mut builder,
+                    instr,
+                    &vars,
+                    &ret_var,
+                    info.ret_type,
+                    BinOp::Xor,
+                )?,
+                Opcode::Shl => emit_binop(
+                    &mut builder,
+                    instr,
+                    &vars,
+                    &ret_var,
+                    info.ret_type,
+                    BinOp::Shl,
+                )?,
+                Opcode::Shr => emit_binop(
+                    &mut builder,
+                    instr,
+                    &vars,
+                    &ret_var,
+                    info.ret_type,
+                    BinOp::Shr,
+                )?,
+
+                Opcode::Neg => {
+                    let a = read_op(
+                        &mut builder,
+                        instr.operands.first()?,
+                        &vars,
+                        &ret_var,
+                        info.ret_type,
+                    )?;
+                    let ty = builder.func.dfg.value_type(a);
+                    let result = if ty == F32 || ty == F64 {
+                        builder.ins().fneg(a)
+                    } else {
+                        let zero = builder.ins().iconst(ty, 0);
+                        builder.ins().isub(zero, a)
+                    };
+                    write_op(
+                        &mut builder,
+                        instr.operands.get(1)?,
+                        result,
+                        &vars,
+                        &ret_var,
+                    )?;
+                }
+                Opcode::Not => {
+                    let a = read_op(
+                        &mut builder,
+                        instr.operands.first()?,
+                        &vars,
+                        &ret_var,
+                        info.ret_type,
+                    )?;
+                    let ty = builder.func.dfg.value_type(a);
+                    let ones = builder.ins().iconst(ty, -1i64);
+                    let result = builder.ins().bxor(a, ones);
+                    write_op(
+                        &mut builder,
+                        instr.operands.get(1)?,
+                        result,
+                        &vars,
+                        &ret_var,
+                    )?;
+                }
+
+                // ── Comparison ───────────────────────────────────────────────────
+                Opcode::Eq => emit_cmp(
+                    &mut builder,
+                    instr,
+                    &vars,
+                    &ret_var,
+                    info.ret_type,
+                    IntCC::Equal,
+                )?,
+                Opcode::Neq => emit_cmp(
+                    &mut builder,
+                    instr,
+                    &vars,
+                    &ret_var,
+                    info.ret_type,
+                    IntCC::NotEqual,
+                )?,
+                Opcode::Lt => emit_cmp(
+                    &mut builder,
+                    instr,
+                    &vars,
+                    &ret_var,
+                    info.ret_type,
+                    IntCC::SignedLessThan,
+                )?,
+                Opcode::Lte => emit_cmp(
+                    &mut builder,
+                    instr,
+                    &vars,
+                    &ret_var,
+                    info.ret_type,
+                    IntCC::SignedLessThanOrEqual,
+                )?,
+                Opcode::Gt => emit_cmp(
+                    &mut builder,
+                    instr,
+                    &vars,
+                    &ret_var,
+                    info.ret_type,
+                    IntCC::SignedGreaterThan,
+                )?,
+                Opcode::Gte => emit_cmp(
+                    &mut builder,
+                    instr,
+                    &vars,
+                    &ret_var,
+                    info.ret_type,
+                    IntCC::SignedGreaterThanOrEqual,
+                )?,
+
+                // ── Control flow ─────────────────────────────────────────────────
+                Opcode::Jmp => {
+                    let target_ip = label_target_ip(instr.operands.last()?)?;
+                    let target_blk = *ip_to_block.get(&target_ip)?;
+                    let no_args: Vec<BlockArg> = Vec::new();
+                    builder.ins().jump(target_blk, no_args.iter());
+                    terminated = true;
+                }
+                Opcode::Jnz => {
+                    let cond = read_op(
+                        &mut builder,
+                        instr.operands.first()?,
+                        &vars,
+                        &ret_var,
+                        info.ret_type,
+                    )?;
+                    let target_ip = label_target_ip(instr.operands.get(1)?)?;
+                    let target_blk = *ip_to_block.get(&target_ip)?;
+                    let fall_blk = *ip_to_block.get(&ip)?;
+                    let nz = is_truthy(&mut builder, cond);
+                    let t_args: Vec<BlockArg> = Vec::new();
+                    let f_args: Vec<BlockArg> = Vec::new();
+                    builder
+                        .ins()
+                        .brif(nz, target_blk, t_args.iter(), fall_blk, f_args.iter());
+                    terminated = true;
+                }
+                Opcode::Jz => {
+                    let cond = read_op(
+                        &mut builder,
+                        instr.operands.first()?,
+                        &vars,
+                        &ret_var,
+                        info.ret_type,
+                    )?;
+                    let target_ip = label_target_ip(instr.operands.get(1)?)?;
+                    let target_blk = *ip_to_block.get(&target_ip)?;
+                    let fall_blk = *ip_to_block.get(&ip)?;
+                    let z = is_zero(&mut builder, cond);
+                    let t_args: Vec<BlockArg> = Vec::new();
+                    let f_args: Vec<BlockArg> = Vec::new();
+                    builder
+                        .ins()
+                        .brif(z, target_blk, t_args.iter(), fall_blk, f_args.iter());
+                    terminated = true;
+                }
+
+                // ── Struct field access ───────────────────────────────────────────
+                Opcode::GetField => {
+                    // Only $args is supported: reads from the loop-carried param Variable.
+                    match instr.operands.first() {
+                        Some(Operand::Slot(SlotRef::BuiltIn(BuiltIn::Args))) => {}
+                        _ => return None,
                     }
-                    Some(op) => {
-                        let v = read_op(&mut builder, op, &vars, &ret_var, info.ret_type)?;
-                        coerce_to(&mut builder, v, jit_ir_type(info.ret_type))
+                    let key = match instr.operands.get(1) {
+                        Some(Operand::Key(k)) => *k,
+                        _ => return None,
+                    };
+                    let pv = *param_vars.get(&key)?;
+                    let param_val = builder.use_var(pv);
+                    let dst_op = instr.operands.get(2)?;
+                    write_op(&mut builder, dst_op, param_val, &vars, &ret_var)?;
+                }
+                Opcode::SetField => {
+                    // Accumulate (struct_slot, key) → CVal for the next TailCall.
+                    let struct_slot = match instr.operands.first() {
+                        Some(Operand::Slot(SlotRef::Local(s))) => *s,
+                        _ => return None,
+                    };
+                    let key = match instr.operands.get(1) {
+                        Some(Operand::Key(k)) => *k,
+                        _ => return None,
+                    };
+                    let val = read_op(
+                        &mut builder,
+                        instr.operands.get(2)?,
+                        &vars,
+                        &ret_var,
+                        info.ret_type,
+                    )?;
+                    setfield_vals.insert((struct_slot, key), val);
+                }
+
+                // ── Self tail-call → loop back to loop_blk ────────────────────────
+                Opcode::TailCall => {
+                    let target_idx = match instr.operands.first() {
+                        Some(Operand::FuncRef(idx)) => *idx as usize,
+                        _ => return None,
+                    };
+                    if target_idx != self_idx {
+                        return None;
                     }
-                };
-                builder.ins().return_(&[ret_val]);
-                terminated = true;
-            }
+                    let struct_slot = match instr.operands.get(1) {
+                        Some(Operand::Slot(SlotRef::Local(s))) => *s,
+                        _ => return None,
+                    };
+                    // Update param_vars then jump to loop_blk.
+                    // We must collect all values BEFORE updating any variables to
+                    // avoid use-after-redefine ordering hazards.
+                    let mut new_vals: Vec<(u32, CVal)> = Vec::with_capacity(info.params.len());
+                    for &(param_key, _jt) in &info.params {
+                        let val = *setfield_vals.get(&(struct_slot, param_key))?;
+                        new_vals.push((param_key, val));
+                    }
+                    for (param_key, val) in new_vals {
+                        let pv = *param_vars.get(&param_key)?;
+                        builder.def_var(pv, val);
+                    }
+                    let no_args: Vec<BlockArg> = Vec::new();
+                    builder.ins().jump(loop_blk, no_args.iter());
+                    terminated = true;
+                }
 
-            Opcode::Halt => {
-                let z = zero_val(&mut builder, info.ret_type);
-                builder.ins().return_(&[z]);
-                terminated = true;
-            }
+                // ── Return ────────────────────────────────────────────────────────
+                Opcode::Ret => {
+                    let op = instr.operands.first();
+                    let ret_val = match op {
+                        None => zero_val(&mut builder, info.ret_type),
+                        Some(Operand::Slot(SlotRef::BuiltIn(BuiltIn::Ret))) => {
+                            builder.use_var(ret_var)
+                        }
+                        Some(op) => {
+                            let v = read_op(&mut builder, op, &vars, &ret_var, info.ret_type)?;
+                            coerce_to(&mut builder, v, jit_ir_type(info.ret_type))
+                        }
+                    };
+                    builder.ins().return_(&[ret_val]);
+                    terminated = true;
+                }
 
-            Opcode::Cast => {
-                let val = read_op(&mut builder, instr.operands.first()?, &vars, &ret_var, info.ret_type)?;
-                let target_ft = match instr.operands.get(1) {
-                    Some(Operand::Type(t)) => *t,
-                    _ => return None,
-                };
-                let target_jt = JitType::from_fasm(target_ft)?;
-                let result = coerce_to(&mut builder, val, jit_ir_type(target_jt));
-                write_op(&mut builder, instr.operands.get(2)?, result, &vars, &ret_var)?;
-            }
+                Opcode::Halt => {
+                    let z = zero_val(&mut builder, info.ret_type);
+                    builder.ins().return_(&[z]);
+                    terminated = true;
+                }
 
-            _ => return None,
-        } Some(()) })();
+                Opcode::Cast => {
+                    let val = read_op(
+                        &mut builder,
+                        instr.operands.first()?,
+                        &vars,
+                        &ret_var,
+                        info.ret_type,
+                    )?;
+                    let target_ft = match instr.operands.get(1) {
+                        Some(Operand::Type(t)) => *t,
+                        _ => return None,
+                    };
+                    let target_jt = JitType::from_fasm(target_ft)?;
+                    let result = coerce_to(&mut builder, val, jit_ir_type(target_jt));
+                    write_op(
+                        &mut builder,
+                        instr.operands.get(2)?,
+                        result,
+                        &vars,
+                        &ret_var,
+                    )?;
+                }
+
+                _ => return None,
+            }
+            Some(())
+        })();
 
         if step.is_none() {
-            eprintln!("[fasm-jit] compile_fn: ip={} opcode={:?} operands={:?} → None",
-                cur_ip, instr.opcode, instr.operands);
+            eprintln!(
+                "[fasm-jit] compile_fn: ip={} opcode={:?} operands={:?} → None",
+                cur_ip, instr.opcode, instr.operands
+            );
             return None;
         }
     }
@@ -546,22 +725,18 @@ fn write_op(
 }
 
 /// Convert a FASM `Immediate` operand to a Cranelift constant.
-fn imm_to_cv(
-    builder: &mut FunctionBuilder<'_>,
-    op: &Operand,
-    hint_ret: JitType,
-) -> Option<CVal> {
+fn imm_to_cv(builder: &mut FunctionBuilder<'_>, op: &Operand, hint_ret: JitType) -> Option<CVal> {
     let imm = match op {
         Operand::Imm(i) => i,
         _ => return None,
     };
     Some(match imm {
-        Immediate::Bool(b)   => builder.ins().iconst(I32, *b as i64),
-        Immediate::Int8(n)   => builder.ins().iconst(I32, *n as i64),
-        Immediate::Int16(n)  => builder.ins().iconst(I32, *n as i64),
-        Immediate::Int32(n)  => builder.ins().iconst(I32, *n as i64),
-        Immediate::Int64(n)  => builder.ins().iconst(I64, *n),
-        Immediate::Uint8(n)  => builder.ins().iconst(I32, *n as i64),
+        Immediate::Bool(b) => builder.ins().iconst(I32, *b as i64),
+        Immediate::Int8(n) => builder.ins().iconst(I32, *n as i64),
+        Immediate::Int16(n) => builder.ins().iconst(I32, *n as i64),
+        Immediate::Int32(n) => builder.ins().iconst(I32, *n as i64),
+        Immediate::Int64(n) => builder.ins().iconst(I64, *n),
+        Immediate::Uint8(n) => builder.ins().iconst(I32, *n as i64),
         Immediate::Uint16(n) => builder.ins().iconst(I32, *n as i64),
         Immediate::Uint32(n) => builder.ins().iconst(I32, *n as i64),
         Immediate::Uint64(n) => builder.ins().iconst(I64, *n as i64),
@@ -631,7 +806,16 @@ fn label_target_ip(op: &Operand) -> Option<usize> {
 
 #[derive(Clone, Copy)]
 enum BinOp {
-    Add, Sub, Mul, Div, Mod, And, Or, Xor, Shl, Shr,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+    And,
+    Or,
+    Xor,
+    Shl,
+    Shr,
 }
 
 fn emit_binop(
@@ -647,13 +831,43 @@ fn emit_binop(
     let ty = builder.func.dfg.value_type(a);
     let b = coerce_to(builder, b_raw, ty);
     let result = match op {
-        BinOp::Add => if ty == F32 || ty == F64 { builder.ins().fadd(a, b) } else { builder.ins().iadd(a, b) },
-        BinOp::Sub => if ty == F32 || ty == F64 { builder.ins().fsub(a, b) } else { builder.ins().isub(a, b) },
-        BinOp::Mul => if ty == F32 || ty == F64 { builder.ins().fmul(a, b) } else { builder.ins().imul(a, b) },
-        BinOp::Div => if ty == F32 || ty == F64 { builder.ins().fdiv(a, b) } else { builder.ins().sdiv(a, b) },
-        BinOp::Mod => if ty == F32 || ty == F64 { return None } else { builder.ins().srem(a, b) },
+        BinOp::Add => {
+            if ty == F32 || ty == F64 {
+                builder.ins().fadd(a, b)
+            } else {
+                builder.ins().iadd(a, b)
+            }
+        }
+        BinOp::Sub => {
+            if ty == F32 || ty == F64 {
+                builder.ins().fsub(a, b)
+            } else {
+                builder.ins().isub(a, b)
+            }
+        }
+        BinOp::Mul => {
+            if ty == F32 || ty == F64 {
+                builder.ins().fmul(a, b)
+            } else {
+                builder.ins().imul(a, b)
+            }
+        }
+        BinOp::Div => {
+            if ty == F32 || ty == F64 {
+                builder.ins().fdiv(a, b)
+            } else {
+                builder.ins().sdiv(a, b)
+            }
+        }
+        BinOp::Mod => {
+            if ty == F32 || ty == F64 {
+                return None;
+            } else {
+                builder.ins().srem(a, b)
+            }
+        }
         BinOp::And => builder.ins().band(a, b),
-        BinOp::Or  => builder.ins().bor(a, b),
+        BinOp::Or => builder.ins().bor(a, b),
         BinOp::Xor => builder.ins().bxor(a, b),
         BinOp::Shl => builder.ins().ishl(a, b),
         BinOp::Shr => builder.ins().sshr(a, b),
@@ -710,12 +924,12 @@ pub fn unpack_ret(raw: i64, ret_type: JitType) -> Value {
 
 fn value_to_i64(v: &Value) -> Option<i64> {
     Some(match v {
-        Value::Bool(b)   => *b as i64,
-        Value::Int8(n)   => *n as i64,
-        Value::Int16(n)  => *n as i64,
-        Value::Int32(n)  => *n as i64,
-        Value::Int64(n)  => *n,
-        Value::Uint8(n)  => *n as i64,
+        Value::Bool(b) => *b as i64,
+        Value::Int8(n) => *n as i64,
+        Value::Int16(n) => *n as i64,
+        Value::Int32(n) => *n as i64,
+        Value::Int64(n) => *n,
+        Value::Uint8(n) => *n as i64,
         Value::Uint16(n) => *n as i64,
         Value::Uint32(n) => *n as i64,
         Value::Uint64(n) => *n as i64,
@@ -751,24 +965,36 @@ pub unsafe fn call_jit(entry: &JitEntry, args: &Value) -> Option<Value> {
             f(packed[0], packed[1], packed[2])
         }
         4 => {
-            let f: unsafe extern "C" fn(i64, i64, i64, i64) -> i64 = std::mem::transmute(entry.fn_ptr);
+            let f: unsafe extern "C" fn(i64, i64, i64, i64) -> i64 =
+                std::mem::transmute(entry.fn_ptr);
             f(packed[0], packed[1], packed[2], packed[3])
         }
         5 => {
-            let f: unsafe extern "C" fn(i64, i64, i64, i64, i64) -> i64 = std::mem::transmute(entry.fn_ptr);
+            let f: unsafe extern "C" fn(i64, i64, i64, i64, i64) -> i64 =
+                std::mem::transmute(entry.fn_ptr);
             f(packed[0], packed[1], packed[2], packed[3], packed[4])
         }
         6 => {
-            let f: unsafe extern "C" fn(i64, i64, i64, i64, i64, i64) -> i64 = std::mem::transmute(entry.fn_ptr);
-            f(packed[0], packed[1], packed[2], packed[3], packed[4], packed[5])
+            let f: unsafe extern "C" fn(i64, i64, i64, i64, i64, i64) -> i64 =
+                std::mem::transmute(entry.fn_ptr);
+            f(
+                packed[0], packed[1], packed[2], packed[3], packed[4], packed[5],
+            )
         }
         7 => {
-            let f: unsafe extern "C" fn(i64, i64, i64, i64, i64, i64, i64) -> i64 = std::mem::transmute(entry.fn_ptr);
-            f(packed[0], packed[1], packed[2], packed[3], packed[4], packed[5], packed[6])
+            let f: unsafe extern "C" fn(i64, i64, i64, i64, i64, i64, i64) -> i64 =
+                std::mem::transmute(entry.fn_ptr);
+            f(
+                packed[0], packed[1], packed[2], packed[3], packed[4], packed[5], packed[6],
+            )
         }
         8 => {
-            let f: unsafe extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64) -> i64 = std::mem::transmute(entry.fn_ptr);
-            f(packed[0], packed[1], packed[2], packed[3], packed[4], packed[5], packed[6], packed[7])
+            let f: unsafe extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64) -> i64 =
+                std::mem::transmute(entry.fn_ptr);
+            f(
+                packed[0], packed[1], packed[2], packed[3], packed[4], packed[5], packed[6],
+                packed[7],
+            )
         }
         _ => return None, // >8 args: fall back to interpreter
     };

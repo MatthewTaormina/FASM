@@ -132,9 +132,7 @@ fn analyze_function(func: &FunctionDef, self_idx: usize) -> Option<JitFnInfo> {
                 // Skip; does not constrain return type.
                 continue;
             }
-            Some(Operand::Slot(SlotRef::Local(idx))) => {
-                slot_types.get(idx).copied()?
-            }
+            Some(Operand::Slot(SlotRef::Local(idx))) => slot_types.get(idx).copied()?,
             Some(Operand::Imm(_)) => {
                 // Immediate return value — treat as i64 (checked later if needed).
                 continue;
@@ -196,7 +194,7 @@ fn analyze_function(func: &FunctionDef, self_idx: usize) -> Option<JitFnInfo> {
 
 fn is_jit_eligible_opcode(
     instr: &fasm_bytecode::Instruction,
-    slot_types: &HashMap<u8, JitType>,
+    _slot_types: &HashMap<u8, JitType>,
     struct_slots: &HashSet<u8>,
     self_idx: usize,
 ) -> bool {

@@ -1,6 +1,6 @@
 use fasm_compiler::compile_source;
-use fasm_jit::{analyze_program, compile_program, codegen};
-use fasm_vm::{value::FasmStruct, Value, Executor};
+use fasm_jit::{analyze_program, codegen, compile_program};
+use fasm_vm::{value::FasmStruct, Executor, Value};
 use std::time::Instant;
 
 const ITERS: u32 = 50_000;
@@ -9,7 +9,8 @@ fn fib_src() -> String {
     std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../crates/fasm-engine/tests/fixtures/fib_handler.fasm"
-    )).unwrap()
+    ))
+    .unwrap()
 }
 
 #[test]

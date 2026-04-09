@@ -132,7 +132,10 @@ ENDF
         let program = compile_source(fib_src()).expect("compile");
         let eligible = analyze_program(&program);
         let fib_idx = program.get_function_index("Fibonacci")?;
-        assert!(eligible.contains_key(&fib_idx), "Fibonacci must be JIT-eligible");
+        assert!(
+            eligible.contains_key(&fib_idx),
+            "Fibonacci must be JIT-eligible"
+        );
         let cache = compile_program(&program, &eligible)?;
         let entry = cache.entries.get(&fib_idx)?;
         let mut s = FasmStruct(Vec::new());
@@ -163,7 +166,10 @@ ENDF
         let prog = compile_source(fib_src()).expect("compile");
         let eligible = analyze_program(&prog);
         let fib_idx = prog.get_function_index("Fibonacci").unwrap();
-        assert!(eligible.contains_key(&fib_idx), "Fibonacci must be JIT-eligible");
+        assert!(
+            eligible.contains_key(&fib_idx),
+            "Fibonacci must be JIT-eligible"
+        );
         let info = &eligible[&fib_idx];
         assert_eq!(info.params.len(), 3);
         assert_eq!(info.ret_type, JitType::I32);
@@ -184,7 +190,10 @@ ENDF
         let prog = compile_source(src).expect("compile");
         let eligible = analyze_program(&prog);
         let main_idx = prog.get_function_index("Main").unwrap();
-        assert!(!eligible.contains_key(&main_idx), "Syscall makes Main ineligible");
+        assert!(
+            !eligible.contains_key(&main_idx),
+            "Syscall makes Main ineligible"
+        );
     }
 
     #[test]
@@ -216,7 +225,9 @@ ENDF
         }
         let jit_result = exec_jit.run(&program).expect("jit run");
 
-        assert_eq!(interp_result, jit_result,
-            "JIT and interpreter must produce the same result");
+        assert_eq!(
+            interp_result, jit_result,
+            "JIT and interpreter must produce the same result"
+        );
     }
 }
