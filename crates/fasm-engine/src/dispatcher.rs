@@ -254,6 +254,15 @@ fn release_sandbox(sb: Sandbox) {
     });
 }
 
+/// Mount the engine-reserved syscalls (IDs 10–49) into a sandbox.
+///
+/// These syscalls are injected by fasm-engine; fasm-vm has no knowledge of them.
+/// Public so that [`crate::persistent_handler::PersistentHandler`] can reuse
+/// the same syscall set without duplicating the registration logic.
+pub fn mount_sandbox_syscalls(sb: &mut Sandbox, metrics: &MetricsRegistry) {
+    mount_engine_syscalls(sb, metrics);
+}
+
 /// Mount the engine-reserved syscalls (IDs 10–49) into a fresh sandbox.
 ///
 /// These syscalls are injected by fasm-engine; fasm-vm has no knowledge of them.
